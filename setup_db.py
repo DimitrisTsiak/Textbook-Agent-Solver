@@ -4,6 +4,22 @@ import re
 import chromadb
 from parse_latex import remove_comments, extract_braced_content, clean_tex_formatting
 
+def load_env(env_path=".env"):
+    """
+    Manually loads key-value pairs from a .env file into os.environ.
+    Ensures zero external dependency for environment loading.
+    """
+    if os.path.exists(env_path):
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    if '=' in line:
+                        key, val = line.split('=', 1)
+                        # Remove potential surrounding quotes from the value
+                        val = val.strip().strip('"').strip("'")
+                        os.environ[key.strip()] = val
+
 def chunk_chapter_file(filepath):
     """
     Reads the LaTeX chapter file, segments it by chapter/section/subsection,
@@ -77,6 +93,22 @@ def chunk_chapter_file(filepath):
     return chunks
 
 def setup_chroma_db():
+    # Load environment variables
+    load_env()
+    
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    model_name = os.environ.get("EMBEDDING_MODEL_NAME", "models/text-embedding-004").strip()
+    
+    embedding_function = None
+    
+    if gemini_key and gemini_key != "YOUR_GEMINI_API_KEY":
+        from chromadb.utils.embedding_functions import GoogleGenerativeAiEmbeddingFunction
+        print(f"Gemini API key detected! Configuring database to use Gemini embeddings ('{model_name}').")
+        embedding_function = GoogleGenerativeAiEmbeddingFunction(api_key=gemini_key, model_name=model_name)
+    else:
+        print("Gemini API key not configured or placeholder remains in .env.")
+        print("Falling back to local SentenceTransformers (all-MiniLM-L6-v2) for embeddings...")
+
     db_path = "./chroma_db"
     print(f"Initializing persistent ChromaDB client at '{db_path}'...")
     client = chromadb.PersistentClient(path=db_path)
@@ -91,7 +123,11 @@ def setup_chroma_db():
     except Exception:
         pass
     
-    chapter_chunks = client.create_collection("chapter_chunks")
+    if embedding_function:
+        chapter_chunks = client.create_collection("chapter_chunks", embedding_function=embedding_function)
+    else:
+        chapter_chunks = client.create_collection("chapter_chunks")
+        
     src_file = os.path.join("linear-algebra-master", "src", "gr", "gr1.tex")
     
     print(f"Chunking chapter file: {src_file}...")
@@ -116,7 +152,11 @@ def setup_chroma_db():
     except Exception:
         pass
     
-    textbook_theory = client.create_collection("textbook_theory")
+    if embedding_function:
+        textbook_theory = client.create_collection("textbook_theory", embedding_function=embedding_function)
+    else:
+        textbook_theory = client.create_collection("textbook_theory")
+        
     json_path = "parsed_gr1.json"
     
     print(f"Loading parsed data from '{json_path}'...")
@@ -164,7 +204,11 @@ def setup_chroma_db():
     except Exception:
         pass
     
-    agent_solutions = client.create_collection("agent_solutions")
+    if embedding_function:
+        agent_solutions = client.create_collection("agent_solutions", embedding_function=embedding_function)
+    else:
+        agent_solutions = client.create_collection("agent_solutions")
+        
     print("Pre-created empty 'agent_solutions' collection.")
     
     # -------------------------------------------------------------
@@ -179,7 +223,6 @@ def setup_chroma_db():
     print("\nTop matches from 'chapter_chunks':")
     for doc, dist, meta in zip(chunk_results['documents'][0], chunk_results['distances'][0], chunk_results['metadatas'][0]):
         print(f"  - [Dist: {dist:.4f}] Section: {meta.get('subsection')} | Content snippet:")
-        # Print first two lines
         snippet = "\n".join(doc.splitlines()[:2])
         print(f"    {snippet}")
         
