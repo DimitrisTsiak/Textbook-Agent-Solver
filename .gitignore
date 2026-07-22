@@ -1,0 +1,12 @@
+# Ignore the raw textbook source directory
+linear-algebra-master/
+
+# Python caching and environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Parsed outputs
+parsed_*.json
