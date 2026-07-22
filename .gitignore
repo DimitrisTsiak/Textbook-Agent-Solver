@@ -13,3 +13,7 @@ parsed_*.json
 
 
 chroma_db/
+
+# Evaluation results and comparison files
+test/results/
+test/comparison_exercise_*.md

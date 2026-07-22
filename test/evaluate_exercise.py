@@ -6,7 +6,7 @@ import google.generativeai as genai
 # =====================================================================
 # CONFIGURATION
 # =====================================================================
-EXERCISE_INDEX = 2
+EXERCISE_INDEX = 10
 MODEL_NAME = "gemma-4-26b-a4b-it"  
 
 # RAG CONFIGURATION
