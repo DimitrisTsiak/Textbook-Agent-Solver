@@ -1,6 +1,7 @@
 import os
 import re
 import json
+from utils.latex_cleaner import clean_latex_for_embeddings
 
 def extract_braced_content(text, start_pos):
     """
@@ -198,6 +199,8 @@ def parse_exercises(block_text, chapter, section, subsection):
             'puzzle': item_info['puzzle'],
             'question': question_content,
             'answer': answer_content,
+            'clean_question': clean_latex_for_embeddings(question_content),
+            'clean_answer': clean_latex_for_embeddings(answer_content),
             'location': {
                 'chapter': chapter,
                 'section': section,
@@ -285,6 +288,7 @@ def parse_latex_file(filepath):
                             'title': title,
                             'label': label,
                             'content': block_content,
+                            'clean_content': clean_latex_for_embeddings(block_content),
                             'location': {
                                 'chapter': current_chapter,
                                 'section': current_section,

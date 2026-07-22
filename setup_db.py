@@ -3,6 +3,7 @@ import json
 import re
 import chromadb
 from parse_latex import remove_comments, extract_braced_content, clean_tex_formatting
+from utils.latex_cleaner import clean_latex_for_embeddings
 
 def load_env(env_path=".env"):
     """
@@ -16,7 +17,6 @@ def load_env(env_path=".env"):
                 if line and not line.startswith('#'):
                     if '=' in line:
                         key, val = line.split('=', 1)
-                        # Remove potential surrounding quotes from the value
                         val = val.strip().strip('"').strip("'")
                         os.environ[key.strip()] = val
 
@@ -134,8 +134,10 @@ def setup_chroma_db():
     chunks = chunk_chapter_file(src_file)
     print(f"Generated {len(chunks)} paragraphs chunks.")
     
-    documents = [c['content'] for c in chunks]
-    metadatas = [c['metadata'] for c in chunks]
+    # Store cleaned content in the document field for embeddings
+    # Store raw LaTeX in metadata['raw_content'] for the LLM solver
+    documents = [clean_latex_for_embeddings(c['content']) for c in chunks]
+    metadatas = [{'raw_content': c['content'], **c['metadata']} for c in chunks]
     ids = [f"chunk_gr1_{idx}" for idx in range(len(chunks))]
     
     print(f"Adding chunks to 'chapter_chunks'...")
@@ -166,15 +168,14 @@ def setup_chroma_db():
     theory_items = [item for item in parsed_data if item['category'] == 'theory']
     print(f"Found {len(theory_items)} theory items.")
     
-    theory_docs = []
+    # Store clean_content in the document field for embeddings
+    # Store raw LaTeX in metadata['raw_content'] for the LLM solver
+    theory_docs = [item['clean_content'] for item in theory_items]
     theory_metadatas = []
-    theory_ids = []
     
     for idx, item in enumerate(theory_items):
-        theory_docs.append(item['content'])
-        
-        # Flatten structure metadata slightly for Chroma compatibility
         meta = {
+            'raw_content': item['content'],
             'type': item['type'],
             'label': item['label'] if item['label'] else "",
             'title': item['title'] if item['title'] else "",
@@ -184,7 +185,8 @@ def setup_chroma_db():
         }
         theory_metadatas.append(meta)
         
-        # Use label as ID if present, otherwise sequential ID
+    theory_ids = []
+    for idx, item in enumerate(theory_items):
         if item['label']:
             theory_ids.append(item['label'])
         else:
@@ -219,20 +221,27 @@ def setup_chroma_db():
     print(f"Querying collections for: '{query}'...")
     
     # Query chapter chunks
-    chunk_results = chapter_chunks.query(query_texts=[query], n_results=2)
-    print("\nTop matches from 'chapter_chunks':")
+    chunk_results = chapter_chunks.query(query_texts=[query], n_results=1)
+    print("\nTop match from 'chapter_chunks':")
     for doc, dist, meta in zip(chunk_results['documents'][0], chunk_results['distances'][0], chunk_results['metadatas'][0]):
-        print(f"  - [Dist: {dist:.4f}] Section: {meta.get('subsection')} | Content snippet:")
-        snippet = "\n".join(doc.splitlines()[:2])
-        print(f"    {snippet}")
+        print(f"  - [Dist: {dist:.4f}] Section: {meta.get('subsection')}")
+        print(f"    [CLEANED EMBEDDING DOCUMENT]:")
+        print(f"      {doc}")
+        print(f"    [RAW LATEX FOR LLM]:")
+        # Print first few lines of raw latex
+        raw_snippet = "\n".join(meta.get('raw_content', '').splitlines()[:4])
+        print(f"      {raw_snippet}\n      ...")
         
     # Query theory elements
-    theory_results = textbook_theory.query(query_texts=[query], n_results=2)
-    print("\nTop matches from 'textbook_theory':")
+    theory_results = textbook_theory.query(query_texts=[query], n_results=1)
+    print("\nTop match from 'textbook_theory':")
     for doc, dist, meta in zip(theory_results['documents'][0], theory_results['distances'][0], theory_results['metadatas'][0]):
         print(f"  - [Dist: {dist:.4f}] Type: {meta.get('type')} | Title: {meta.get('title')} | Label: {meta.get('label')}")
-        snippet = "\n".join(doc.splitlines()[:2])
-        print(f"    {snippet}")
+        print(f"    [CLEANED EMBEDDING DOCUMENT]:")
+        print(f"      {doc}")
+        print(f"    [RAW LATEX FOR LLM]:")
+        raw_snippet = "\n".join(meta.get('raw_content', '').splitlines()[:4])
+        print(f"      {raw_snippet}\n      ...")
 
 if __name__ == '__main__':
     setup_chroma_db()
