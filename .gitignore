@@ -10,3 +10,6 @@ venv/
 
 # Parsed outputs
 parsed_*.json
+
+
+chroma_db/
