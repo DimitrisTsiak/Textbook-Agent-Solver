@@ -1,14 +1,18 @@
 import os
 import json
+import re
 import google.generativeai as genai
 
 # =====================================================================
 # CONFIGURATION
-# Change this index to evaluate different exercises (1 to 62)
 # =====================================================================
 EXERCISE_INDEX = 2
-#MODEL_NAME = "gemini-2.5-flash-lite"
 MODEL_NAME = "gemma-4-26b-a4b-it"  
+
+# RAG CONFIGURATION
+USE_RAG = True               # Set to True to retrieve context from ChromaDB
+N_THEORY_RESULTS = 2         # Number of theory blocks to retrieve
+N_CHUNK_RESULTS = 2          # Number of textbook paragraphs to retrieve
 # =====================================================================
 
 def load_env(env_path="../.env"):
@@ -16,7 +20,6 @@ def load_env(env_path="../.env"):
     Loads env variables from .env file (looking up one level since this script is in test/).
     """
     env_vars = {}
-    # First check in current directory, then parent directory
     paths_to_check = [".env", env_path]
     for p in paths_to_check:
         if os.path.exists(p):
@@ -61,7 +64,6 @@ def evaluate():
         
     # Find the exercise
     json_path = os.path.join("..", "parsed_gr1.json")
-    # Fallback to local if running from project root
     if not os.path.exists(json_path):
         json_path = "parsed_gr1.json"
         
@@ -74,20 +76,147 @@ def evaluate():
         
     question_text = exercise['question']
     official_answer = exercise['answer']
+    clean_question = exercise.get('clean_question', question_text)
     
-    # Configure Gemini LLM
-    print(f"Configuring {MODEL_NAME} API client...")
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(MODEL_NAME)
+    # -------------------------------------------------------------
+    # ChromaDB Context Retrieval (RAG)
+    # -------------------------------------------------------------
+    use_rag = USE_RAG
+    context = ""
+    retrieved_summary = []
+    suffix = "local"
     
-    prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
+    if use_rag:
+        try:
+            import chromadb
+            
+            # Resolve db path
+            db_path = "chroma_db"
+            if not os.path.exists(db_path):
+                db_path = os.path.join("..", "chroma_db")
+                
+            if not os.path.exists(db_path):
+                print(f"[WARNING] ChromaDB folder not found at '{db_path}'. Skipping RAG retrieval...")
+            else:
+                print(f"Connecting to ChromaDB at '{db_path}'...")
+                client = chromadb.PersistentClient(path=db_path)
+                
+                # Suffix depends on environment config
+                suffix = "gemini" if api_key and api_key != "YOUR_GEMINI_API_KEY" else "local"
+                chunks_col_name = f"chapter_chunks_{suffix}"
+                theory_col_name = f"textbook_theory_{suffix}"
+                
+                # Setup custom embedding function for gemini if active
+                embedding_function = None
+                if suffix == "gemini":
+                    from chromadb import EmbeddingFunction
+                    class CustomGeminiEmbeddingFunction(EmbeddingFunction):
+                        def __init__(self, api_key: str, model_name: str):
+                            self.model_name = model_name
+                            import google.generativeai as genai
+                            genai.configure(api_key=api_key)
+                        def __call__(self, input: list) -> list:
+                            import google.generativeai as genai
+                            response = genai.embed_content(
+                                model=self.model_name,
+                                content=input,
+                                task_type="retrieval_document"
+                            )
+                            return response['embedding']
+                    emb_model = env.get("EMBEDDING_MODEL_NAME", "models/text-embedding-004").strip()
+                    embedding_function = CustomGeminiEmbeddingFunction(api_key=api_key, model_name=emb_model)
+                
+                theory_context = []
+                chunk_context = []
+                
+                # 1. Retrieve Textbook Theory
+                try:
+                    if embedding_function:
+                        theory_col = client.get_collection(theory_col_name, embedding_function=embedding_function)
+                    else:
+                        theory_col = client.get_collection(theory_col_name)
+                    print(f"Querying '{theory_col_name}' for context...")
+                    res = theory_col.query(query_texts=[clean_question], n_results=N_THEORY_RESULTS)
+                    
+                    for doc, dist, meta in zip(res['documents'][0], res['distances'][0], res['metadatas'][0]):
+                        raw_latex = meta.get('raw_content', doc)
+                        title_info = f" ({meta.get('title')})" if meta.get('title') else ""
+                        label_info = f" (Label: {meta.get('label')})" if meta.get('label') else ""
+                        theory_context.append(
+                            f"[{meta.get('type', 'theory').upper()}]{title_info}{label_info}:\n{raw_latex}"
+                        )
+                        retrieved_summary.append(
+                            f"* **{meta.get('type', 'Theory').capitalize()}** (Dist: {dist:.4f}) - Label: `{meta.get('label', 'None')}`"
+                        )
+                except Exception as e:
+                    print(f"[WARNING] Retrieval from '{theory_col_name}' failed: {e}")
+                    
+                # 2. Retrieve Chapter Paragraph Chunks
+                try:
+                    if embedding_function:
+                        chunks_col = client.get_collection(chunks_col_name, embedding_function=embedding_function)
+                    else:
+                        chunks_col = client.get_collection(chunks_col_name)
+                    print(f"Querying '{chunks_col_name}' for context...")
+                    res = chunks_col.query(query_texts=[clean_question], n_results=N_CHUNK_RESULTS)
+                    
+                    for doc, dist, meta in zip(res['documents'][0], res['distances'][0], res['metadatas'][0]):
+                        raw_latex = meta.get('raw_content', doc)
+                        chunk_context.append(
+                            f"Paragraph Excerpt (Subsection '{meta.get('subsection', 'Unknown')}'):\n{raw_latex}"
+                        )
+                        retrieved_summary.append(
+                            f"* **Chapter Chunk** (Dist: {dist:.4f}) - Subsection: `{meta.get('subsection', 'None')}`"
+                        )
+                except Exception as e:
+                    print(f"[WARNING] Retrieval from '{chunks_col_name}' failed: {e}")
+                
+                # Combine context pieces
+                context_parts = []
+                if theory_context:
+                    context_parts.append("--- RELEVANT TEXTBOOK THEORY ---\n" + "\n\n".join(theory_context))
+                if chunk_context:
+                    context_parts.append("--- RELEVANT CHAPTER CONTEXT ---\n" + "\n\n".join(chunk_context))
+                    
+                if context_parts:
+                    context = "\n\n".join(context_parts)
+                    print("Retrieved context successfully.")
+                else:
+                    print("No matching context was retrieved.")
+                    
+        except ImportError:
+            print("[WARNING] chromadb package is not installed. Skipping RAG retrieval...")
+            use_rag = False
+            
+    # -------------------------------------------------------------
+    # Prompt Construction & LLM Call
+    # -------------------------------------------------------------
+    if use_rag and context:
+        prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
+Use the relevant textbook context provided below to guide your solution, referring to definitions, theorems, and row reduction notations as described in the context.
+
+--- CONTEXT ---
+{context}
+
+--- EXERCISE ---
+{question_text}
+
+Provide your complete mathematical solution. Keep your explanation concise but mathematically rigorous. Cite relevant theorems or definitions from the context when you apply them.
+"""
+    else:
+        prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
 Do not use any external textbook context, solve it from first principles.
 
-Exercise:
+--- EXERCISE ---
 {question_text}
 
 Provide your complete mathematical solution. Keep your explanation concise but mathematically rigorous.
 """
+        
+    # Configure Gemini LLM
+    print(f"Configuring {MODEL_NAME} API client...")
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(MODEL_NAME)
     
     print("Calling Gemini LLM to generate answer...")
     try:
@@ -101,7 +230,6 @@ Provide your complete mathematical solution. Keep your explanation concise but m
     # Output to markdown file
     output_dir = "test"
     if not os.path.exists(output_dir):
-        # Handle if already inside test/
         if os.path.basename(os.getcwd()) == "test":
             output_dir = "."
         else:
@@ -109,6 +237,8 @@ Provide your complete mathematical solution. Keep your explanation concise but m
             
     out_filename = f"comparison_exercise_{EXERCISE_INDEX}.md"
     out_path = os.path.join(output_dir, out_filename)
+    
+    retrieved_items_list = "\n".join(retrieved_summary) if retrieved_summary else "* No items retrieved."
     
     md_content = f"""# Comparison for Exercise {EXERCISE_INDEX}
 
@@ -119,6 +249,15 @@ Provide your complete mathematical solution. Keep your explanation concise but m
 * **ID**: `{exercise['id']}`
 * **Recommended**: {exercise['recommended']}
 * **Puzzle**: {exercise['puzzle']}
+
+## RAG Configuration
+* **RAG Enabled**: {use_rag}
+* **Retrieval Suffix**: `{suffix}`
+* **Retrieved Theory Count**: {N_THEORY_RESULTS}
+* **Retrieved Paragraph Count**: {N_CHUNK_RESULTS}
+
+### Retrieved Index Items:
+{retrieved_items_list}
 
 ---
 
