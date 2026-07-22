@@ -100,14 +100,22 @@ def setup_chroma_db():
     model_name = os.environ.get("EMBEDDING_MODEL_NAME", "models/text-embedding-004").strip()
     
     embedding_function = None
+    suffix = "local"
     
     if gemini_key and gemini_key != "YOUR_GEMINI_API_KEY":
         from chromadb.utils.embedding_functions import GoogleGenerativeAiEmbeddingFunction
         print(f"Gemini API key detected! Configuring database to use Gemini embeddings ('{model_name}').")
         embedding_function = GoogleGenerativeAiEmbeddingFunction(api_key=gemini_key, model_name=model_name)
+        suffix = "gemini"
     else:
         print("Gemini API key not configured or placeholder remains in .env.")
         print("Falling back to local SentenceTransformers (all-MiniLM-L6-v2) for embeddings...")
+        suffix = "local"
+
+    # Define model-suffix collection names
+    chunks_col_name = f"chapter_chunks_{suffix}"
+    theory_col_name = f"textbook_theory_{suffix}"
+    solutions_col_name = f"agent_solutions_{suffix}"
 
     db_path = "./chroma_db"
     print(f"Initializing persistent ChromaDB client at '{db_path}'...")
@@ -116,17 +124,17 @@ def setup_chroma_db():
     # -------------------------------------------------------------
     # 1. Collection for Chapter Chunks
     # -------------------------------------------------------------
-    print("\n--- Collection 1: chapter_chunks ---")
+    print(f"\n--- Collection 1: {chunks_col_name} ---")
     try:
-        client.delete_collection("chapter_chunks")
-        print("Deleted existing 'chapter_chunks' collection.")
+        client.delete_collection(chunks_col_name)
+        print(f"Deleted existing '{chunks_col_name}' collection.")
     except Exception:
         pass
     
     if embedding_function:
-        chapter_chunks = client.create_collection("chapter_chunks", embedding_function=embedding_function)
+        chapter_chunks = client.create_collection(chunks_col_name, embedding_function=embedding_function)
     else:
-        chapter_chunks = client.create_collection("chapter_chunks")
+        chapter_chunks = client.create_collection(chunks_col_name)
         
     src_file = os.path.join("linear-algebra-master", "src", "gr", "gr1.tex")
     
@@ -140,24 +148,24 @@ def setup_chroma_db():
     metadatas = [{'raw_content': c['content'], **c['metadata']} for c in chunks]
     ids = [f"chunk_gr1_{idx}" for idx in range(len(chunks))]
     
-    print(f"Adding chunks to 'chapter_chunks'...")
+    print(f"Adding chunks to '{chunks_col_name}'...")
     chapter_chunks.add(documents=documents, metadatas=metadatas, ids=ids)
     print(f"Stored {len(ids)} chunks.")
     
     # -------------------------------------------------------------
     # 2. Collection for Textbook Theory
     # -------------------------------------------------------------
-    print("\n--- Collection 2: textbook_theory ---")
+    print(f"\n--- Collection 2: {theory_col_name} ---")
     try:
-        client.delete_collection("textbook_theory")
-        print("Deleted existing 'textbook_theory' collection.")
+        client.delete_collection(theory_col_name)
+        print(f"Deleted existing '{theory_col_name}' collection.")
     except Exception:
         pass
     
     if embedding_function:
-        textbook_theory = client.create_collection("textbook_theory", embedding_function=embedding_function)
+        textbook_theory = client.create_collection(theory_col_name, embedding_function=embedding_function)
     else:
-        textbook_theory = client.create_collection("textbook_theory")
+        textbook_theory = client.create_collection(theory_col_name)
         
     json_path = "parsed_gr1.json"
     
@@ -192,55 +200,54 @@ def setup_chroma_db():
         else:
             theory_ids.append(f"theory_gr1_{idx}")
             
-    print("Adding theory elements to 'textbook_theory'...")
+    print(f"Adding theory elements to '{theory_col_name}'...")
     textbook_theory.add(documents=theory_docs, metadatas=theory_metadatas, ids=theory_ids)
     print(f"Stored {len(theory_ids)} theory elements.")
     
     # -------------------------------------------------------------
     # 3. Collection for Agent Solutions
     # -------------------------------------------------------------
-    print("\n--- Collection 3: agent_solutions ---")
+    print(f"\n--- Collection 3: {solutions_col_name} ---")
     try:
-        client.delete_collection("agent_solutions")
-        print("Deleted existing 'agent_solutions' collection.")
+        client.delete_collection(solutions_col_name)
+        print(f"Deleted existing '{solutions_col_name}' collection.")
     except Exception:
         pass
     
     if embedding_function:
-        agent_solutions = client.create_collection("agent_solutions", embedding_function=embedding_function)
+        agent_solutions = client.create_collection(solutions_col_name, embedding_function=embedding_function)
     else:
-        agent_solutions = client.create_collection("agent_solutions")
+        agent_solutions = client.create_collection(solutions_col_name)
         
-    print("Pre-created empty 'agent_solutions' collection.")
+    print(f"Pre-created empty '{solutions_col_name}' collection.")
     
     # -------------------------------------------------------------
     # Verification Query
     # -------------------------------------------------------------
-    print("\n--- Verifying Retrieval ---")
+    print(f"\n--- Verifying Retrieval on Active Suffix: '{suffix}' ---")
     query = "Gauss's Method and row operations"
-    print(f"Querying collections for: '{query}'...")
+    print(f"Querying active collections for: '{query}'...")
     
     # Query chapter chunks
     chunk_results = chapter_chunks.query(query_texts=[query], n_results=1)
-    print("\nTop match from 'chapter_chunks':")
+    print(f"\nTop match from '{chunks_col_name}':")
     for doc, dist, meta in zip(chunk_results['documents'][0], chunk_results['distances'][0], chunk_results['metadatas'][0]):
         print(f"  - [Dist: {dist:.4f}] Section: {meta.get('subsection')}")
         print(f"    [CLEANED EMBEDDING DOCUMENT]:")
         print(f"      {doc}")
         print(f"    [RAW LATEX FOR LLM]:")
-        # Print first few lines of raw latex
-        raw_snippet = "\n".join(meta.get('raw_content', '').splitlines()[:4])
+        raw_snippet = "\n".join(meta.get('raw_content', '').splitlines()[:3])
         print(f"      {raw_snippet}\n      ...")
         
     # Query theory elements
     theory_results = textbook_theory.query(query_texts=[query], n_results=1)
-    print("\nTop match from 'textbook_theory':")
+    print(f"\nTop match from '{theory_col_name}':")
     for doc, dist, meta in zip(theory_results['documents'][0], theory_results['distances'][0], theory_results['metadatas'][0]):
         print(f"  - [Dist: {dist:.4f}] Type: {meta.get('type')} | Title: {meta.get('title')} | Label: {meta.get('label')}")
         print(f"    [CLEANED EMBEDDING DOCUMENT]:")
         print(f"      {doc}")
         print(f"    [RAW LATEX FOR LLM]:")
-        raw_snippet = "\n".join(meta.get('raw_content', '').splitlines()[:4])
+        raw_snippet = "\n".join(meta.get('raw_content', '').splitlines()[:3])
         print(f"      {raw_snippet}\n      ...")
 
 if __name__ == '__main__':
