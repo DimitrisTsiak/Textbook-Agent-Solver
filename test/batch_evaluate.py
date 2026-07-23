@@ -15,6 +15,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from tools.search import search_textbook
+from tools.calculator import calculate_linear_algebra
 
 def load_env(env_path):
     """
@@ -60,6 +61,8 @@ def main():
                         help="Limit the number of exercises to evaluate (for testing).")
     parser.add_argument("--use-search", action="store_true", 
                         help="Enable the BM25 textbook keyword search tool for the solver.")
+    parser.add_argument("--use-calc", action="store_true", 
+                        help="Enable the linear algebra Python code calculator tool for the solver.")
     args = parser.parse_args()
 
     # Resolve paths relative to the script location
@@ -167,8 +170,9 @@ def main():
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     rag_status = "rag" if use_rag else "norag"
     search_status = "search" if args.use_search else "nosearch"
+    calc_status = "calc" if args.use_calc else "nocalc"
     model_slug = get_model_slug(args.model)
-    output_filename = f"eval_run_{model_slug}_{rag_status}_{search_status}_{timestamp_str}.json"
+    output_filename = f"eval_run_{model_slug}_{rag_status}_{search_status}_{calc_status}_{timestamp_str}.json"
     output_filepath = os.path.join(results_dir, output_filename)
 
     run_metadata = {
@@ -177,6 +181,7 @@ def main():
         "model_name": args.model,
         "use_rag": use_rag,
         "use_search": args.use_search,
+        "use_calc": args.use_calc,
         "embedding_model_name": embedding_model_name if use_rag else None,
         "retrieval_suffix": suffix if use_rag else None,
         "n_theory_results": args.n_theory if use_rag else 0,
@@ -189,14 +194,21 @@ def main():
     results = []
 
     # Prepare model
+    active_tools = []
     if args.use_search:
-        print(f"Configuring Generative Model '{args.model}' with BM25 search_textbook tool...")
+        active_tools.append(search_textbook)
+    if args.use_calc:
+        active_tools.append(calculate_linear_algebra)
+        
+    if active_tools:
+        tool_names = ", ".join([t.__name__ for t in active_tools])
+        print(f"Configuring Generative Model '{args.model}' with tools: [{tool_names}]...")
         model = genai.GenerativeModel(
             args.model,
-            tools=[search_textbook]
+            tools=active_tools
         )
     else:
-        print(f"Configuring Generative Model '{args.model}' (search tool disabled)...")
+        print(f"Configuring Generative Model '{args.model}' (all tools disabled)...")
         model = genai.GenerativeModel(args.model)
 
     for idx, ex in enumerate(exercises):
@@ -263,15 +275,19 @@ def main():
                 context_text = "\n\n".join(context_parts)
 
         # Formulate Prompt
-        search_instruction = ""
+        instructions = []
         if args.use_search:
-            search_instruction = "You have access to the tool `search_textbook(query)` to search the textbook for relevant definitions, theorems, and examples if needed."
+            instructions.append("You have access to the tool `search_textbook(query)` to search the textbook for relevant definitions, theorems, and examples if needed.")
+        if args.use_calc:
+            instructions.append("You have access to the tool `calculate_linear_algebra(code)` to run Python code to perform matrix operations, row reductions, or algebra. The tool returns stdout, so print your results. IMPORTANT: Do not write import statements in your code. SymPy public functions/classes (such as Matrix, symbols, solve, etc.) and NumPy (as np) are already pre-imported in the execution environment. REMINDER: You must always use this tool to verify and perform any mathematical or linear algebra calculations. Do not rely on calculations provided in the prompt or exercise text as they may be inaccurate or misleading.")
+            
+        tool_instructions = "\n".join(instructions)
 
         if use_rag and context_text:
             prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
 Use the relevant textbook context provided below to guide your solution, referring to definitions, theorems, and row reduction notations as described in the context.
 
-{search_instruction}
+{tool_instructions}
 
 --- CONTEXT ---
 {context_text}
@@ -283,7 +299,9 @@ Provide your complete mathematical solution. Keep your explanation concise but m
 """
         else:
             prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
-Do not use any external textbook context unless you search for it. {search_instruction}
+Do not use any external textbook context unless you search for it.
+
+{tool_instructions}
 
 --- EXERCISE ---
 {question_text}
@@ -303,7 +321,7 @@ Provide your complete mathematical solution. Keep your explanation concise but m
 
         for attempt in range(max_attempts):
             try:
-                if args.use_search:
+                if active_tools:
                     chat = model.start_chat(enable_automatic_function_calling=True)
                     response = chat.send_message(prompt, request_options={"timeout": 60.0})
                 else:
@@ -343,6 +361,7 @@ Provide your complete mathematical solution. Keep your explanation concise but m
             "retrieved_context": retrieved_context_info if use_rag else None,
             "generated_answer": llm_answer,
             "use_search": args.use_search,
+            "use_calc": args.use_calc,
             "duration_seconds": round(duration, 2),
             "status": status,
             "error_message": error_msg

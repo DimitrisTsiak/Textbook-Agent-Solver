@@ -11,6 +11,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from tools.search import search_textbook
+from tools.calculator import calculate_linear_algebra
 
 # =====================================================================
 # CONFIGURATION
@@ -23,6 +24,7 @@ USE_RAG = True               # Set to True to retrieve context from ChromaDB
 N_THEORY_RESULTS = 2         # Number of theory blocks to retrieve
 N_CHUNK_RESULTS = 2          # Number of textbook paragraphs to retrieve
 USE_SEARCH_TOOL = True       # Set to True to give the agent access to the BM25 search tool
+USE_CALCULATOR_TOOL = True   # Set to True to give the agent access to the linear algebra calculator tool
 # =====================================================================
 
 def load_env(env_path="../.env"):
@@ -201,15 +203,19 @@ def evaluate():
     # -------------------------------------------------------------
     # Prompt Construction & LLM Call
     # -------------------------------------------------------------
-    search_instruction = ""
+    instructions = []
     if USE_SEARCH_TOOL:
-        search_instruction = "You have access to the tool `search_textbook(query)` to search the textbook for relevant definitions, theorems, and examples if needed."
+        instructions.append("You have access to the tool `search_textbook(query)` to search the textbook for relevant definitions, theorems, and examples if needed.")
+    if USE_CALCULATOR_TOOL:
+        instructions.append("You have access to the tool `calculate_linear_algebra(code)` to run Python code to perform matrix operations, row reductions, or algebra. The tool returns stdout, so print your results. IMPORTANT: Do not write import statements in your code. SymPy public functions/classes (such as Matrix, symbols, solve, etc.) and NumPy (as np) are already pre-imported in the execution environment. REMINDER: You must always use this tool to verify and perform any mathematical or linear algebra calculations. Do not rely on calculations provided in the prompt or exercise text as they may be inaccurate or misleading.")
+        
+    tool_instructions = "\n".join(instructions)
 
     if use_rag and context:
         prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
 Use the relevant textbook context provided below to guide your solution, referring to definitions, theorems, and row reduction notations as described in the context.
 
-{search_instruction}
+{tool_instructions}
 
 --- CONTEXT ---
 {context}
@@ -221,7 +227,9 @@ Provide your complete mathematical solution. Keep your explanation concise but m
 """
     else:
         prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
-Do not use any external textbook context unless you search for it. {search_instruction}
+Do not use any external textbook context unless you search for it.
+
+{tool_instructions}
 
 --- EXERCISE ---
 {question_text}
@@ -232,11 +240,18 @@ Provide your complete mathematical solution. Keep your explanation concise but m
     # Configure Gemini LLM
     genai.configure(api_key=api_key)
     
+    active_tools = []
     if USE_SEARCH_TOOL:
-        print(f"Configuring {MODEL_NAME} API client with BM25 search_textbook tool...")
+        active_tools.append(search_textbook)
+    if USE_CALCULATOR_TOOL:
+        active_tools.append(calculate_linear_algebra)
+        
+    if active_tools:
+        tool_names = ", ".join([t.__name__ for t in active_tools])
+        print(f"Configuring {MODEL_NAME} API client with tools: [{tool_names}]...")
         model = genai.GenerativeModel(
             MODEL_NAME,
-            tools=[search_textbook]
+            tools=active_tools
         )
         print("Calling Gemini LLM with automatic function calling enabled...")
         try:
@@ -256,7 +271,7 @@ Provide your complete mathematical solution. Keep your explanation concise but m
             print(f"[ERROR] Gemini API invocation failed: {e}")
             return
     else:
-        print(f"Configuring {MODEL_NAME} API client (search tool disabled)...")
+        print(f"Configuring {MODEL_NAME} API client (all tools disabled)...")
         model = genai.GenerativeModel(MODEL_NAME)
         print("Calling Gemini LLM...")
         try:
@@ -301,6 +316,7 @@ Provide your complete mathematical solution. Keep your explanation concise but m
 ## RAG Configuration
 * **RAG Enabled**: {use_rag}
 * **Search Tool Enabled**: {USE_SEARCH_TOOL}
+* **Calculator Tool Enabled**: {USE_CALCULATOR_TOOL}
 * **Retrieval Suffix**: `{suffix}`
 * **Retrieved Theory Count**: {N_THEORY_RESULTS}
 * **Retrieved Paragraph Count**: {N_CHUNK_RESULTS}
