@@ -1,18 +1,28 @@
 import os
+import sys
 import json
 import re
 import google.generativeai as genai
 
+# Resolve paths to allow importing from tools and utils
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from tools.search import search_textbook
+
 # =====================================================================
 # CONFIGURATION
 # =====================================================================
-EXERCISE_INDEX = 1
-MODEL_NAME = "gemma-4-26b-a4b-it"  
+EXERCISE_INDEX = 10
+MODEL_NAME = "models/gemini-3.5-flash-lite"  
 
 # RAG CONFIGURATION
 USE_RAG = True               # Set to True to retrieve context from ChromaDB
 N_THEORY_RESULTS = 2         # Number of theory blocks to retrieve
 N_CHUNK_RESULTS = 2          # Number of textbook paragraphs to retrieve
+USE_SEARCH_TOOL = True       # Set to True to give the agent access to the BM25 search tool
 # =====================================================================
 
 def load_env(env_path="../.env"):
@@ -191,9 +201,15 @@ def evaluate():
     # -------------------------------------------------------------
     # Prompt Construction & LLM Call
     # -------------------------------------------------------------
+    search_instruction = ""
+    if USE_SEARCH_TOOL:
+        search_instruction = "You have access to the tool `search_textbook(query)` to search the textbook for relevant definitions, theorems, and examples if needed."
+
     if use_rag and context:
         prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
 Use the relevant textbook context provided below to guide your solution, referring to definitions, theorems, and row reduction notations as described in the context.
+
+{search_instruction}
 
 --- CONTEXT ---
 {context}
@@ -201,11 +217,11 @@ Use the relevant textbook context provided below to guide your solution, referri
 --- EXERCISE ---
 {question_text}
 
-Provide your complete mathematical solution. Keep your explanation concise but mathematically rigorous. Cite relevant theorems or definitions from the context when you apply them.
+Provide your complete mathematical solution. Keep your explanation concise but mathematically rigorous. Cite relevant theorems or definitions when you apply them.
 """
     else:
         prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
-Do not use any external textbook context, solve it from first principles.
+Do not use any external textbook context unless you search for it. {search_instruction}
 
 --- EXERCISE ---
 {question_text}
@@ -214,25 +230,50 @@ Provide your complete mathematical solution. Keep your explanation concise but m
 """
         
     # Configure Gemini LLM
-    print(f"Configuring {MODEL_NAME} API client...")
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(MODEL_NAME)
     
-    print("Calling Gemini LLM to generate answer...")
-    try:
-        response = model.generate_content(prompt, 
-        generation_config={
-            "temperature": 0.2,
-            "top_p": 0.85,
-            "top_k": 30,
-            "max_output_tokens": 8192,
-        }
+    if USE_SEARCH_TOOL:
+        print(f"Configuring {MODEL_NAME} API client with BM25 search_textbook tool...")
+        model = genai.GenerativeModel(
+            MODEL_NAME,
+            tools=[search_textbook]
         )
-        llm_answer = response.text
-        print("LLM generated answer successfully.")
-    except Exception as e:
-        print(f"[ERROR] Gemini API invocation failed: {e}")
-        return
+        print("Calling Gemini LLM with automatic function calling enabled...")
+        try:
+            chat = model.start_chat(enable_automatic_function_calling=True)
+            response = chat.send_message(
+                prompt,
+                generation_config={
+                    "temperature": 0.2,
+                    "top_p": 0.85,
+                    "top_k": 30,
+                    "max_output_tokens": 8192,
+                }
+            )
+            llm_answer = response.text
+            print("LLM generated answer successfully.")
+        except Exception as e:
+            print(f"[ERROR] Gemini API invocation failed: {e}")
+            return
+    else:
+        print(f"Configuring {MODEL_NAME} API client (search tool disabled)...")
+        model = genai.GenerativeModel(MODEL_NAME)
+        print("Calling Gemini LLM...")
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.2,
+                    "top_p": 0.85,
+                    "top_k": 30,
+                    "max_output_tokens": 8192,
+                }
+            )
+            llm_answer = response.text
+            print("LLM generated answer successfully.")
+        except Exception as e:
+            print(f"[ERROR] Gemini API invocation failed: {e}")
+            return
         
     # Output to markdown file
     output_dir = "test"
@@ -259,6 +300,7 @@ Provide your complete mathematical solution. Keep your explanation concise but m
 
 ## RAG Configuration
 * **RAG Enabled**: {use_rag}
+* **Search Tool Enabled**: {USE_SEARCH_TOOL}
 * **Retrieval Suffix**: `{suffix}`
 * **Retrieved Theory Count**: {N_THEORY_RESULTS}
 * **Retrieved Paragraph Count**: {N_CHUNK_RESULTS}

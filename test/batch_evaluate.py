@@ -8,6 +8,14 @@ from datetime import datetime
 import google.generativeai as genai
 from google.api_core import exceptions
 
+# Resolve paths relative to the script location to allow importing from tools and utils
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from tools.search import search_textbook
+
 def load_env(env_path):
     """
     Loads env variables from .env file into a dictionary.
@@ -50,6 +58,8 @@ def main():
                         help="Number of textbook paragraph chunks to retrieve.")
     parser.add_argument("--limit", type=int, default=None, 
                         help="Limit the number of exercises to evaluate (for testing).")
+    parser.add_argument("--use-search", action="store_true", 
+                        help="Enable the BM25 textbook keyword search tool for the solver.")
     args = parser.parse_args()
 
     # Resolve paths relative to the script location
@@ -156,8 +166,9 @@ def main():
     # Initialize results structures
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     rag_status = "rag" if use_rag else "norag"
+    search_status = "search" if args.use_search else "nosearch"
     model_slug = get_model_slug(args.model)
-    output_filename = f"eval_run_{model_slug}_{rag_status}_{timestamp_str}.json"
+    output_filename = f"eval_run_{model_slug}_{rag_status}_{search_status}_{timestamp_str}.json"
     output_filepath = os.path.join(results_dir, output_filename)
 
     run_metadata = {
@@ -165,6 +176,7 @@ def main():
         "timestamp_end": None,
         "model_name": args.model,
         "use_rag": use_rag,
+        "use_search": args.use_search,
         "embedding_model_name": embedding_model_name if use_rag else None,
         "retrieval_suffix": suffix if use_rag else None,
         "n_theory_results": args.n_theory if use_rag else 0,
@@ -177,8 +189,15 @@ def main():
     results = []
 
     # Prepare model
-    print(f"Configuring Generative Model '{args.model}'...")
-    model = genai.GenerativeModel(args.model)
+    if args.use_search:
+        print(f"Configuring Generative Model '{args.model}' with BM25 search_textbook tool...")
+        model = genai.GenerativeModel(
+            args.model,
+            tools=[search_textbook]
+        )
+    else:
+        print(f"Configuring Generative Model '{args.model}' (search tool disabled)...")
+        model = genai.GenerativeModel(args.model)
 
     for idx, ex in enumerate(exercises):
         print(f"\n[{idx+1}/{total_exercises}] Processing Exercise {ex['index']} (ID: {ex['id']})...")
@@ -244,9 +263,15 @@ def main():
                 context_text = "\n\n".join(context_parts)
 
         # Formulate Prompt
+        search_instruction = ""
+        if args.use_search:
+            search_instruction = "You have access to the tool `search_textbook(query)` to search the textbook for relevant definitions, theorems, and examples if needed."
+
         if use_rag and context_text:
             prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
 Use the relevant textbook context provided below to guide your solution, referring to definitions, theorems, and row reduction notations as described in the context.
+
+{search_instruction}
 
 --- CONTEXT ---
 {context_text}
@@ -254,11 +279,11 @@ Use the relevant textbook context provided below to guide your solution, referri
 --- EXERCISE ---
 {question_text}
 
-Provide your complete mathematical solution. Keep your explanation concise but mathematically rigorous. Cite relevant theorems or definitions from the context when you apply them.
+Provide your complete mathematical solution. Keep your explanation concise but mathematically rigorous. Cite relevant theorems or definitions when you apply them.
 """
         else:
             prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
-Do not use any external textbook context, solve it from first principles.
+Do not use any external textbook context unless you search for it. {search_instruction}
 
 --- EXERCISE ---
 {question_text}
@@ -278,7 +303,11 @@ Provide your complete mathematical solution. Keep your explanation concise but m
 
         for attempt in range(max_attempts):
             try:
-                response = model.generate_content(prompt, request_options={"timeout": 60.0})
+                if args.use_search:
+                    chat = model.start_chat(enable_automatic_function_calling=True)
+                    response = chat.send_message(prompt, request_options={"timeout": 60.0})
+                else:
+                    response = model.generate_content(prompt, request_options={"timeout": 60.0})
                 llm_answer = response.text
                 break
             except exceptions.ResourceExhausted:
@@ -313,6 +342,7 @@ Provide your complete mathematical solution. Keep your explanation concise but m
             "official_answer": official_answer,
             "retrieved_context": retrieved_context_info if use_rag else None,
             "generated_answer": llm_answer,
+            "use_search": args.use_search,
             "duration_seconds": round(duration, 2),
             "status": status,
             "error_message": error_msg
