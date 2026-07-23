@@ -7,21 +7,15 @@ import argparse
 import google.generativeai as genai
 from google.api_core import exceptions
 
-def load_env(env_path):
-    """
-    Loads env variables from .env file into a dictionary.
-    """
-    env_vars = {}
-    if os.path.exists(env_path):
-        with open(env_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    if '=' in line:
-                        key, val = line.split('=', 1)
-                        val = val.strip().strip('"').strip("'")
-                        env_vars[key.strip()] = val
-    return env_vars
+# Resolve paths to allow importing from tools and utils
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from utils.env import load_env
+
+# load_env is imported from utils.env
 
 def main():
     # Force line buffering for standard output to ensure real-time logging
@@ -46,8 +40,8 @@ def main():
     results_dir = os.path.join(script_dir, "results")
 
     # Load environment variables
-    env = load_env(env_path)
-    api_key = env.get("GEMINI_API_KEY", "").strip()
+    load_env(env_path)
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
 
     if not api_key or api_key == "YOUR_GEMINI_API_KEY":
         print("[ERROR] Gemini API Key is not set or placeholder remains in .env.")

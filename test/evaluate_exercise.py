@@ -12,6 +12,8 @@ if project_root not in sys.path:
 
 from tools.search import search_textbook
 from tools.calculator import calculate_linear_algebra
+from utils.env import load_env
+from utils.embeddings import CustomGeminiEmbeddingFunction
 
 # =====================================================================
 # CONFIGURATION
@@ -27,24 +29,7 @@ USE_SEARCH_TOOL = True       # Set to True to give the agent access to the BM25 
 USE_CALCULATOR_TOOL = True   # Set to True to give the agent access to the linear algebra calculator tool
 # =====================================================================
 
-def load_env(env_path="../.env"):
-    """
-    Loads env variables from .env file (looking up one level since this script is in test/).
-    """
-    env_vars = {}
-    paths_to_check = [".env", env_path]
-    for p in paths_to_check:
-        if os.path.exists(p):
-            with open(p, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        if '=' in line:
-                            key, val = line.split('=', 1)
-                            val = val.strip().strip('"').strip("'")
-                            env_vars[key.strip()] = val
-            break
-    return env_vars
+# load_env is imported from utils.env
 
 def find_exercise_by_index(json_path, target_index):
     """
@@ -66,8 +51,8 @@ def find_exercise_by_index(json_path, target_index):
 
 def evaluate():
     print(f"Loading environment variables...")
-    env = load_env()
-    api_key = env.get("GEMINI_API_KEY", "").strip()
+    load_env()
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     
     if not api_key or api_key == "YOUR_GEMINI_API_KEY":
         print("\n[ERROR] Gemini API Key is not set or placeholder remains in .env.")
@@ -121,21 +106,7 @@ def evaluate():
                 # Setup custom embedding function for gemini if active
                 embedding_function = None
                 if suffix == "gemini":
-                    from chromadb import EmbeddingFunction
-                    class CustomGeminiEmbeddingFunction(EmbeddingFunction):
-                        def __init__(self, api_key: str, model_name: str):
-                            self.model_name = model_name
-                            import google.generativeai as genai
-                            genai.configure(api_key=api_key)
-                        def __call__(self, input: list) -> list:
-                            import google.generativeai as genai
-                            response = genai.embed_content(
-                                model=self.model_name,
-                                content=input,
-                                task_type="retrieval_document"
-                            )
-                            return response['embedding']
-                    emb_model = env.get("EMBEDDING_MODEL_NAME", "models/text-embedding-004").strip()
+                    emb_model = os.environ.get("EMBEDDING_MODEL_NAME", "models/text-embedding-004").strip()
                     embedding_function = CustomGeminiEmbeddingFunction(api_key=api_key, model_name=emb_model)
                 
                 theory_context = []

@@ -16,22 +16,10 @@ if project_root not in sys.path:
 
 from tools.search import search_textbook
 from tools.calculator import calculate_linear_algebra
+from utils.env import load_env
+from utils.embeddings import CustomGeminiEmbeddingFunction
 
-def load_env(env_path):
-    """
-    Loads env variables from .env file into a dictionary.
-    """
-    env_vars = {}
-    if os.path.exists(env_path):
-        with open(env_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    if '=' in line:
-                        key, val = line.split('=', 1)
-                        val = val.strip().strip('"').strip("'")
-                        env_vars[key.strip()] = val
-    return env_vars
+# load_env is imported from utils.env
 
 def get_model_slug(model_name):
     """
@@ -77,8 +65,8 @@ def main():
     os.makedirs(results_dir, exist_ok=True)
 
     # Load environment variables
-    env = load_env(env_path)
-    api_key = env.get("GEMINI_API_KEY", "").strip()
+    load_env(env_path)
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
 
     if not api_key or api_key == "YOUR_GEMINI_API_KEY":
         print("[ERROR] Gemini API Key is not set or placeholder remains in .env.")
@@ -90,7 +78,7 @@ def main():
 
     # Determine embedding configuration
     suffix = "gemini" if api_key and api_key != "YOUR_GEMINI_API_KEY" else "local"
-    embedding_model_name = env.get("EMBEDDING_MODEL_NAME", "models/text-embedding-004").strip()
+    embedding_model_name = os.environ.get("EMBEDDING_MODEL_NAME", "models/text-embedding-004").strip()
     if suffix == "local":
         embedding_model_name = "local SentenceTransformers (all-MiniLM-L6-v2)"
 
@@ -128,18 +116,6 @@ def main():
                 
                 # Setup custom embedding function for gemini if suffix is gemini
                 if suffix == "gemini":
-                    from chromadb import EmbeddingFunction
-                    class CustomGeminiEmbeddingFunction(EmbeddingFunction):
-                        def __init__(self, api_key: str, model_name: str):
-                            self.model_name = model_name
-                            genai.configure(api_key=api_key)
-                        def __call__(self, input: list) -> list:
-                            response = genai.embed_content(
-                                model=self.model_name,
-                                content=input,
-                                task_type="retrieval_document"
-                            )
-                            return response['embedding']
                     embedding_function = CustomGeminiEmbeddingFunction(api_key=api_key, model_name=embedding_model_name)
 
                 # Fetch collections

@@ -4,21 +4,8 @@ import re
 import chromadb
 from parse_latex import remove_comments, extract_braced_content, clean_tex_formatting
 from utils.latex_cleaner import clean_latex_for_embeddings
-
-def load_env(env_path=".env"):
-    """
-    Manually loads key-value pairs from a .env file into os.environ.
-    Ensures zero external dependency for environment loading.
-    """
-    if os.path.exists(env_path):
-        with open(env_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    if '=' in line:
-                        key, val = line.split('=', 1)
-                        val = val.strip().strip('"').strip("'")
-                        os.environ[key.strip()] = val
+from utils.env import load_env
+from utils.embeddings import CustomGeminiEmbeddingFunction
 
 def chunk_chapter_file(filepath):
     """
@@ -103,45 +90,6 @@ def setup_chroma_db():
     suffix = "local"
     
     if gemini_key and gemini_key != "YOUR_GEMINI_API_KEY":
-        import time
-        from chromadb import EmbeddingFunction
-        from google.api_core import exceptions
-        
-        class CustomGeminiEmbeddingFunction(EmbeddingFunction):
-            def __init__(self, api_key: str, model_name: str):
-                self.model_name = model_name
-                import google.generativeai as genai
-                genai.configure(api_key=api_key)
-            def __call__(self, input: list) -> list:
-                import google.generativeai as genai
-                batch_size = 45
-                embeddings = []
-                for i in range(0, len(input), batch_size):
-                    batch = input[i:i+batch_size]
-                    print(f"  [Embedding Service] Embedding batch of {len(batch)} items (index {i} to {i+len(batch)})...")
-                    
-                    # Attempt query with automatic retry on rate limit
-                    while True:
-                        try:
-                            response = genai.embed_content(
-                                model=self.model_name,
-                                content=batch,
-                                task_type="retrieval_document"
-                            )
-                            embeddings.extend(response['embedding'])
-                            break  # Success
-                        except exceptions.ResourceExhausted:
-                            print("  [Embedding Service] Rate limit reached (429 ResourceExhausted). Sleeping 65 seconds to refill quota...")
-                            time.sleep(65)
-                        except Exception as e:
-                            print(f"  [Embedding Service] Unexpected error: {e}")
-                            raise e
-                    
-                    if i + batch_size < len(input):
-                        print("  [Embedding Service] Rate limit safeguard: Sleeping 65 seconds before next batch...")
-                        time.sleep(65)
-                return embeddings
-                
         print(f"Gemini API key detected! Configuring database to use Gemini embeddings ('{model_name}').")
         embedding_function = CustomGeminiEmbeddingFunction(api_key=gemini_key, model_name=model_name)
         suffix = "gemini"

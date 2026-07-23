@@ -1,29 +1,19 @@
 import os
+import sys
 import google.generativeai as genai
 
-def load_env(env_path="../.env"):
-    """
-    Loads env variables from .env file (looking up one level since this script is in test/).
-    """
-    env_vars = {}
-    paths_to_check = [".env", env_path]
-    for p in paths_to_check:
-        if os.path.exists(p):
-            with open(p, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        if '=' in line:
-                            key, val = line.split('=', 1)
-                            val = val.strip().strip('"').strip("'")
-                            env_vars[key.strip()] = val
-            break
-    return env_vars
+# Resolve paths to allow importing from tools and utils
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from utils.env import load_env
 
 def main():
     print("Loading environment variables...")
-    env = load_env()
-    api_key = env.get("GEMINI_API_KEY", "").strip()
+    load_env()
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     
     if not api_key or api_key == "YOUR_GEMINI_API_KEY":
         print("\n[ERROR] Gemini API Key is not set or placeholder remains in .env.")
