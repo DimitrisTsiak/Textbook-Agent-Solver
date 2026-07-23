@@ -6,7 +6,7 @@ import google.generativeai as genai
 # =====================================================================
 # CONFIGURATION
 # =====================================================================
-EXERCISE_INDEX = 10
+EXERCISE_INDEX = 1
 MODEL_NAME = "gemma-4-26b-a4b-it"  
 
 # RAG CONFIGURATION
@@ -220,7 +220,14 @@ Provide your complete mathematical solution. Keep your explanation concise but m
     
     print("Calling Gemini LLM to generate answer...")
     try:
-        response = model.generate_content(prompt)
+        response = model.generate_content(prompt, 
+        generation_config={
+            "temperature": 0.2,
+            "top_p": 0.85,
+            "top_k": 30,
+            "max_output_tokens": 8192,
+        }
+        )
         llm_answer = response.text
         print("LLM generated answer successfully.")
     except Exception as e:
