@@ -51,6 +51,14 @@ def main():
                         help="Enable the BM25 textbook keyword search tool for the solver.")
     parser.add_argument("--use-calc", action="store_true", 
                         help="Enable the linear algebra Python code calculator tool for the solver.")
+    parser.add_argument("--temperature", type=float, default=None, 
+                        help="Sampling temperature for model generation.")
+    parser.add_argument("--top-p", type=float, default=None, 
+                        help="Top-p sampling parameter.")
+    parser.add_argument("--top-k", type=int, default=None, 
+                        help="Top-k sampling parameter.")
+    parser.add_argument("--max-output-tokens", type=int, default=None, 
+                        help="Maximum output tokens constraint.")
     args = parser.parse_args()
 
     # Resolve paths relative to the script location
@@ -151,6 +159,16 @@ def main():
     output_filename = f"eval_run_{model_slug}_{rag_status}_{search_status}_{calc_status}_{timestamp_str}.json"
     output_filepath = os.path.join(results_dir, output_filename)
 
+    generation_config = {}
+    if args.temperature is not None:
+        generation_config["temperature"] = args.temperature
+    if args.top_p is not None:
+        generation_config["top_p"] = args.top_p
+    if args.top_k is not None:
+        generation_config["top_k"] = args.top_k
+    if args.max_output_tokens is not None:
+        generation_config["max_output_tokens"] = args.max_output_tokens
+
     run_metadata = {
         "timestamp_start": datetime.now().isoformat(),
         "timestamp_end": None,
@@ -158,6 +176,7 @@ def main():
         "use_rag": use_rag,
         "use_search": args.use_search,
         "use_calc": args.use_calc,
+        "generation_config": generation_config if generation_config else None,
         "embedding_model_name": embedding_model_name if use_rag else None,
         "retrieval_suffix": suffix if use_rag else None,
         "n_theory_results": args.n_theory if use_rag else 0,
@@ -181,11 +200,15 @@ def main():
         print(f"Configuring Generative Model '{args.model}' with tools: [{tool_names}]...")
         model = genai.GenerativeModel(
             args.model,
-            tools=active_tools
+            tools=active_tools,
+            generation_config=generation_config if generation_config else None
         )
     else:
         print(f"Configuring Generative Model '{args.model}' (all tools disabled)...")
-        model = genai.GenerativeModel(args.model)
+        model = genai.GenerativeModel(
+            args.model,
+            generation_config=generation_config if generation_config else None
+        )
 
     for idx, ex in enumerate(exercises):
         print(f"\n[{idx+1}/{total_exercises}] Processing Exercise {ex['index']} (ID: {ex['id']})...")
@@ -323,6 +346,17 @@ Provide your complete mathematical solution. Keep your explanation concise but m
         duration = time.time() - start_time
         print(f"  Result: {status.upper()} | Duration: {duration:.2f}s")
 
+        # Count tool calls
+        tool_call_count = 0
+        if active_tools and status == "success":
+            try:
+                for content in chat.history:
+                    for part in content.parts:
+                        if hasattr(part, 'function_call') and part.function_call:
+                            tool_call_count += 1
+            except Exception as e:
+                print(f"  [WARNING] Failed to extract tool call count: {e}")
+
         # Save result
         results.append({
             "exercise_index": ex['index'],
@@ -338,6 +372,7 @@ Provide your complete mathematical solution. Keep your explanation concise but m
             "generated_answer": llm_answer,
             "use_search": args.use_search,
             "use_calc": args.use_calc,
+            "tool_call_count": tool_call_count,
             "duration_seconds": round(duration, 2),
             "status": status,
             "error_message": error_msg
