@@ -43,12 +43,11 @@ This outputs a side-by-side comparison in `test/comparison_exercise_{index}.md`.
 
 ## Evaluation of tool usage and RAG on gr2 chapter exercises using an LLM as Judge to compare the solution with the textbook solutions
 
-LLM model: gemmini-3.5-flash-lite
-RAG to fetch textbook contents and textbook theorems relevant to the exercise
-Search tool: fetch textbook contents based on keywords 
-calc tool: executable code using numpy and sympy to execute sybolic and numeric linear algebra operations
-
-Judge model: gemmini-3.5-flash-lite
+- **LLM Model**: `gemini-3.5-flash-lite`
+- **RAG**: Fetches textbook contents and theorems relevant to the exercise
+- **Search Tool**: Fetches textbook contents based on keywords
+- **Calc Tool**: Runs executable Python code using `numpy` and `sympy` to execute symbolic and numeric linear algebra operations
+- **Judge Model**: `gemini-3.5-flash-lite`
 
 | Configuration | CLI Arguments | LLM-as-a-Judge Accuracy (Linear Geometry chapter 42 exercises) | 
 | :--- | :--- | :--- |
