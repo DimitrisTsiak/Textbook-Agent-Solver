@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linear Algebra Blackboard Solver</title>
+    
+    <!-- Google Fonts: Patrick Hand for handwriting, Architects Daughter for headings, Fira Code for code -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Patrick+Hand&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- KaTeX CSS for math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    
+    <!-- KaTeX JS & Auto-render extension -->
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+    
+    <!-- Marked.js for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <style>
+        :root {
+            --board-green: #152b1e;
+            --board-dark: #0e1d15;
+            --wood-frame: #613e26;
+            --wood-frame-light: #794e30;
+            --chalk-white: #e9eee9;
+            --chalk-yellow: #fff3c3;
+            --chalk-blue: #c3f0ff;
+            --chalk-pink: #ffd3e8;
+            --chalk-green: #d1ffd6;
+            --chalk-orange: #ffe0c3;
+            --dusty-bg: rgba(255, 255, 255, 0.02);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Patrick Hand', cursive, sans-serif;
+            background-color: #2b2b2b;
+            background-image: radial-gradient(#444 10%, transparent 10%),
+                              radial-gradient(#444 10%, transparent 10%);
+            background-size: 20px 20px;
+            background-position: 0 0, 10px 10px;
+            color: var(--chalk-white);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-size: 1.25rem;
+        }
+
+        /* Top control panel (wooden shelf) */
+        header {
+            background-color: var(--wood-frame);
+            border-bottom: 8px solid #4a2f1c;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 10;
+            flex-shrink: 0;
+        }
+
+        .header-title h1 {
+            font-family: 'Architects Daughter', cursive;
+            font-size: 1.8rem;
+            color: var(--chalk-white);
+            text-shadow: 2px 2px 0px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header-title h1::before {
+            content: "✏️";
+            font-size: 1.5rem;
+        }
+
+        .controls-wrapper {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .control-group label {
+            font-size: 0.9rem;
+            color: #d1b49e;
+            text-transform: uppercase;
+            font-family: 'Architects Daughter', sans-serif;
+        }
+
+        select, input, button {
+            background-color: rgba(0, 0, 0, 0.4);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 6px;
+            color: var(--chalk-white);
+            padding: 6px 12px;
+            font-family: 'Patrick Hand', cursive;
+            font-size: 1.1rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        select:focus, input:focus {
+            border-color: var(--chalk-yellow);
+            box-shadow: 0 0 5px rgba(255, 243, 195, 0.4);
+        }
+
+        option {
+            background-color: #2b2b2b;
+            color: var(--chalk-white);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            user-select: none;
+            font-size: 1.1rem;
+        }
+
+        .checkbox-item input {
+            cursor: pointer;
+            accent-color: var(--board-green);
+        }
+
+        /* Solve Button - Chalk outline style */
+        .solve-btn {
+            background-color: transparent;
+            border: 2px dashed var(--chalk-yellow);
+            color: var(--chalk-yellow);
+            font-family: 'Architects Daughter', cursive;
+            font-weight: bold;
+            padding: 8px 20px;
+            cursor: pointer;
+            border-radius: 8px;
+            text-shadow: 0 0 2px rgba(255, 243, 195, 0.5);
+            box-shadow: 0 0 5px rgba(255, 243, 195, 0.1);
+            transition: all 0.2s ease;
+        }
+
+        .solve-btn:hover {
+            background-color: rgba(255, 243, 195, 0.1);
+            box-shadow: 0 0 10px rgba(255, 243, 195, 0.4), inset 0 0 5px rgba(255, 243, 195, 0.2);
+            border-style: solid;
+            transform: scale(1.03);
+        }
+
+        .solve-btn:disabled {
+            border-color: rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 0.2);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Main blackboard area */
+        .blackboard-container {
+            display: flex;
+            flex: 1;
+            padding: 15px;
+            gap: 15px;
+            overflow: hidden;
+        }
+
+        /* Chalkboard Panel Style */
+        .chalkboard {
+            background-color: var(--board-green);
+            background-image: 
+                radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.04) 0%, transparent 70%),
+                linear-gradient(rgba(255, 255, 255, 0.005) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.005) 1px, transparent 1px);
+            background-size: 100% 100%, 25px 25px, 25px 25px;
+            border: 12px solid var(--wood-frame);
+            border-radius: 12px;
+            box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.9), 
+                        0 8px 25px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .chalkboard::after {
+            content: "";
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 6px;
+            background: rgba(255,255,255,0.08); /* Chalk dust shelf effect */
+            pointer-events: none;
+        }
+
+        .board-header {
+            border-bottom: 2px dashed rgba(255, 255, 255, 0.2);
+            padding: 10px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.15);
+            flex-shrink: 0;
+        }
+
+        .board-title {
+            font-family: 'Architects Daughter', cursive;
+            font-size: 1.3rem;
+            color: var(--chalk-yellow);
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+
+        .board-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+
+        /* Left Panel - Main Solver */
+        .left-panel {
+            flex: 3;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        /* Right Panel - Agent Dashboard (RAG + Tools) */
+        .right-panel {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            height: 100%;
+        }
+
+        .right-panel .chalkboard {
+            flex: 1;
+            height: 50%;
+        }
+
+        /* Question Box inside Left Panel */
+        .question-box {
+            background-color: var(--board-dark);
+            border-bottom: 2px dashed rgba(255, 255, 255, 0.15);
+            padding: 15px 20px;
+            flex-shrink: 0;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+            position: relative;
+        }
+
+        .question-label {
+            font-family: 'Architects Daughter', cursive;
+            font-size: 1.1rem;
+            color: var(--chalk-pink);
+            margin-bottom: 5px;
+        }
+
+        .question-text {
+            color: #ffffff;
+            line-height: 1.4;
+            font-size: 1.3rem;
+            overflow-y: auto;
+            max-height: 120px;
+        }
+
+        /* Solver Stream Container */
+        .solution-stream {
+            line-height: 1.6;
+            font-size: 1.35rem;
+            color: var(--chalk-white);
+            text-shadow: 0 0 1px rgba(255,255,255,0.2);
+        }
+
+        .solution-stream h1, .solution-stream h2, .solution-stream h3 {
+            font-family: 'Architects Daughter', cursive;
+            color: var(--chalk-yellow);
+            margin: 15px 0 10px 0;
+            text-shadow: 1px 1px 0px rgba(0,0,0,0.4);
+        }
+
+        .solution-stream h2 { font-size: 1.5rem; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 3px; }
+
+        .solution-stream p {
+            margin-bottom: 12px;
+        }
+
+        .solution-stream ul, .solution-stream ol {
+            margin-left: 25px;
+            margin-bottom: 12px;
+        }
+
+        .solution-stream pre {
+            background-color: rgba(0, 0, 0, 0.3);
+            border: 1px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'Fira Code', monospace;
+            font-size: 1.05rem;
+            overflow-x: auto;
+            margin-bottom: 12px;
+            color: var(--chalk-blue);
+        }
+
+        .solution-stream code {
+            font-family: 'Fira Code', monospace;
+            font-size: 1.05rem;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--chalk-blue);
+        }
+
+        /* Custom latex formulas */
+        .katex-display {
+            background: rgba(255, 255, 255, 0.02);
+            padding: 8px;
+            border-radius: 6px;
+            margin: 10px 0;
+            border-left: 3px solid var(--chalk-yellow);
+        }
+
+        /* RAG References Styles */
+        .rag-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .rag-card {
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.02);
+            transition: all 0.2s ease;
+        }
+
+        .rag-card:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .rag-card.type-definition { border-color: var(--chalk-yellow); }
+        .rag-card.type-theorem { border-color: var(--chalk-pink); }
+        .rag-card.type-paragraph { border-color: var(--chalk-blue); }
+
+        .rag-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            font-family: 'Architects Daughter', cursive;
+            font-size: 0.95rem;
+        }
+
+        .rag-tag {
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #111;
+        }
+
+        .rag-card.type-definition .rag-tag { background-color: var(--chalk-yellow); }
+        .rag-card.type-theorem .rag-tag { background-color: var(--chalk-pink); }
+        .rag-card.type-paragraph .rag-tag { background-color: var(--chalk-blue); }
+
+        .rag-dist {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.8rem;
+        }
+
+        .rag-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 1.1rem;
+            color: #ffffff;
+        }
+
+        .rag-body {
+            font-size: 1rem;
+            color: rgba(255, 255, 255, 0.8);
+            max-height: 80px;
+            overflow-y: auto;
+            font-family: 'Fira Code', monospace;
+            background: rgba(0, 0, 0, 0.15);
+            padding: 5px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+
+        /* Tool Execution Log Styles */
+        .tool-log-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.95rem;
+        }
+
+        .tool-log-item {
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(0,0,0,0.2);
+        }
+
+        .tool-log-header {
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border-bottom: 1px dashed rgba(255,255,255,0.15);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: var(--chalk-yellow);
+            font-weight: bold;
+        }
+
+        .tool-badge {
+            background-color: var(--chalk-blue);
+            color: #111;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-family: 'Architects Daughter', cursive;
+        }
+
+        .tool-log-item.calc-tool .tool-badge {
+            background-color: var(--chalk-orange);
+        }
+
+        .tool-log-code {
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.4);
+            white-space: pre-wrap;
+            border-bottom: 1px dotted rgba(255,255,255,0.1);
+            color: var(--chalk-blue);
+        }
+
+        .tool-log-result {
+            padding: 8px 12px;
+            white-space: pre-wrap;
+            color: var(--chalk-green);
+        }
+
+        /* Status and Alerts */
+        .status-console {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: 'Architects Daughter', cursive;
+            color: var(--chalk-yellow);
+            font-size: 1.15rem;
+        }
+
+        .spinner {
+            width: 18px;
+            height: 18px;
+            border: 3px solid rgba(255, 243, 195, 0.3);
+            border-top: 3px solid var(--chalk-yellow);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-msg {
+            color: #ff8b8b;
+            border: 2px solid #ff8b8b;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+            background: rgba(255,0,0,0.1);
+            font-family: 'Fira Code', monospace;
+            font-size: 1rem;
+        }
+
+        .warning-msg {
+            color: var(--chalk-orange);
+            font-style: italic;
+            margin: 5px 0;
+        }
+
+        /* Scrollbars */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.1);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+            border: 2px solid var(--board-green);
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Toggle Answer Button */
+        .toggle-answer-btn {
+            background-color: transparent;
+            border: 1px dashed rgba(255, 255, 255, 0.4);
+            color: rgba(255, 255, 255, 0.6);
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            font-family: 'Architects Daughter', cursive;
+            transition: all 0.2s ease;
+        }
+
+        .toggle-answer-btn:hover {
+            color: var(--chalk-pink);
+            border-color: var(--chalk-pink);
+            background: rgba(255, 211, 232, 0.05);
+        }
+
+        /* Answer Overlay Modal-like chalkboard */
+        .answer-overlay {
+            background: var(--board-dark);
+            border: 4px solid var(--wood-frame-light);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            display: none;
+        }
+
+        .answer-overlay-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px dashed rgba(255,255,255,0.2);
+            padding-bottom: 5px;
+            margin-bottom: 10px;
+            font-family: 'Architects Daughter', cursive;
+            color: var(--chalk-pink);
+            font-size: 1.1rem;
+        }
+
+        .close-answer-btn {
+            background: transparent;
+            border: none;
+            color: rgba(255,255,255,0.5);
+            cursor: pointer;
+            font-size: 1.2rem;
+        }
+
+        .close-answer-btn:hover {
+            color: #ffffff;
+        }
+
+        .answer-body {
+            font-size: 1.25rem;
+            color: #fff;
+            line-height: 1.5;
+        }
+
+        /* Responsive Layout */
+        @media (max-width: 1024px) {
+            .blackboard-container {
+                flex-direction: column;
+                overflow-y: auto;
+            }
+            .right-panel {
+                height: 600px;
+                flex-shrink: 0;
+            }
+            .left-panel {
+                height: 600px;
+                flex-shrink: 0;
+            }
+            body {
+                overflow-y: auto;
+                height: auto;
+            }
+        }
+
+        /* Inline exercises parts list */
+        .exparts-inline {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: wrap !important;
+            gap: 15px !important;
+            list-style-type: none !important;
+            padding-left: 0 !important;
+        }
+        .exparts-inline li {
+            display: inline-block !important;
+        }
+        .exparts-list {
+            font-size: 1.25rem;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Top Shelf Controls -->
+    <header>
+        <div class="header-title">
+            <h1>Blackboard Solver</h1>
+        </div>
+        <div class="controls-wrapper">
+            <!-- Dataset Selection -->
+            <div class="control-group">
+                <label for="dataset-select">Dataset</label>
+                <select id="dataset-select">
+                    <option value="gr2">Chapter 2 (Linear Geometry)</option>
+                    <option value="gr1">Chapter 1 (Linear Systems)</option>
+                </select>
+            </div>
+
+            <!-- Exercise Selection -->
+            <div class="control-group">
+                <label for="exercise-select">Exercise</label>
+                <select id="exercise-select" style="max-width: 320px;">
+                    <!-- Dynamically populated -->
+                </select>
+            </div>
+
+            <!-- Model Selection -->
+            <div class="control-group">
+                <label for="model-select">LLM Model</label>
+                <select id="model-select">
+                    <option value="models/gemini-3.5-flash-lite">gemini-3.5-flash-lite (Fast)</option>
+                    <option value="models/gemini-2.5-flash">gemini-2.5-flash</option>
+                    <option value="models/gemini-2.5-pro">gemini-2.5-pro (Capable)</option>
+                </select>
+            </div>
+
+            <!-- Pipeline Toggles -->
+            <div class="control-group">
+                <label>Agent Features</label>
+                <div class="checkbox-group">
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="rag-checkbox" checked> RAG
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="search-checkbox" checked> Search
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="checkbox" id="calc-checkbox" checked> Calculator
+                    </label>
+                </div>
+            </div>
+
+            <!-- Action button -->
+            <div class="control-group" style="padding-top: 15px;">
+                <button id="solve-btn" class="solve-btn">SOLVE ON BOARD</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="blackboard-container">
+        
+        <!-- Left Panel: Problem Display & Main Answer -->
+        <div class="left-panel">
+            <!-- Question Box -->
+            <div class="question-box">
+                <div class="question-label" id="question-label-text">Exercise Question</div>
+                <div class="question-text" id="question-text-area">Select an exercise to preview...</div>
+                
+                <div style="margin-top: 8px; display: flex; justify-content: flex-end;">
+                    <button class="toggle-answer-btn" id="reveal-answer-btn" disabled>Reveal Official Solution</button>
+                </div>
+
+                <!-- Hidden Official Answer Card -->
+                <div class="answer-overlay" id="answer-overlay">
+                    <div class="answer-overlay-header">
+                        <span>Official Answer Manual Solution</span>
+                        <button class="close-answer-btn" id="close-answer-btn">&times;</button>
+                    </div>
+                    <div class="answer-body" id="answer-body-content"></div>
+                </div>
+            </div>
+
+            <!-- Main Solution Blackboard -->
+            <div class="chalkboard" style="flex: 1;">
+                <div class="board-header">
+                    <span class="board-title" id="solver-board-title">Blackboard Solution</span>
+                    <div class="status-console">
+                        <div class="spinner" id="status-spinner"></div>
+                        <span id="status-message">Ready</span>
+                    </div>
+                </div>
+                <div class="board-content" id="main-board-content">
+                    <div class="solution-stream" id="solution-container">
+                        <!-- Streamed output ends up here -->
+                        <div style="color: rgba(255,255,255,0.4); text-align: center; margin-top: 100px;">
+                            Click "SOLVE ON BOARD" to begin.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Agent Dashboard (RAG + Tools) -->
+        <div class="right-panel">
+            
+            <!-- RAG references -->
+            <div class="chalkboard">
+                <div class="board-header">
+                    <span class="board-title">Retrieved RAG Context (ChromaDB)</span>
+                </div>
+                <div class="board-content" id="rag-board-content">
+                    <div class="rag-list" id="rag-items-container">
+                        <div style="color: rgba(255,255,255,0.3); text-align: center; margin-top: 50px; font-size: 1.1rem;">
+                            No references loaded. Run with RAG enabled to see vector search matches.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tool Execution Logs -->
+            <div class="chalkboard">
+                <div class="board-header">
+                    <span class="board-title">Tool Execution Logs</span>
+                </div>
+                <div class="board-content" id="tools-board-content">
+                    <div class="tool-log-list" id="tool-logs-container">
+                        <div style="color: rgba(255,255,255,0.3); text-align: center; margin-top: 50px; font-size: 1.1rem;">
+                            No tools executed yet. Call search or calculator to log activities.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        // Global exercise dataset
+        let exercisesList = [];
+        
+        // Element references
+        const datasetSelect = document.getElementById('dataset-select');
+        const exerciseSelect = document.getElementById('exercise-select');
+        const modelSelect = document.getElementById('model-select');
+        const ragCheckbox = document.getElementById('rag-checkbox');
+        const searchCheckbox = document.getElementById('search-checkbox');
+        const calcCheckbox = document.getElementById('calc-checkbox');
+        const solveBtn = document.getElementById('solve-btn');
+        
+        const questionTextArea = document.getElementById('question-text-area');
+        const questionLabelText = document.getElementById('question-label-text');
+        const revealAnswerBtn = document.getElementById('reveal-answer-btn');
+        const answerOverlay = document.getElementById('answer-overlay');
+        const answerBodyContent = document.getElementById('answer-body-content');
+        const closeAnswerBtn = document.getElementById('close-answer-btn');
+        
+        const solutionContainer = document.getElementById('solution-container');
+        const mainBoardContent = document.getElementById('main-board-content');
+        const ragItemsContainer = document.getElementById('rag-items-container');
+        const toolLogsContainer = document.getElementById('tool-logs-container');
+        const statusMessage = document.getElementById('status-message');
+        const statusSpinner = document.getElementById('status-spinner');
+        
+        const solverBoardTitle = document.getElementById('solver-board-title');
+
+        // Initialize exercises
+        async function fetchExercises() {
+            const dataset = datasetSelect.value;
+            statusMessage.innerText = `Fetching ${dataset} exercises...`;
+            try {
+                const response = await fetch(`/api/exercises?dataset=${dataset}`);
+                const data = await response.json();
+                exercisesList = data.exercises || [];
+                
+                // Populate dropdown
+                exerciseSelect.innerHTML = '';
+                exercisesList.forEach(ex => {
+                    const opt = document.createElement('option');
+                    opt.value = ex.index;
+                    
+                    const sec = ex.location.section || '';
+                    const subsec = ex.location.subsection || '';
+                    const locStr = sec && subsec ? `[${sec} - ${subsec}]` : (sec ? `[${sec}]` : '');
+                    
+                    // Truncate question for dropdown display
+                    let questionSnippet = ex.question.split('\n')[0];
+                    if (questionSnippet.length > 50) questionSnippet = questionSnippet.substring(0, 47) + '...';
+                    
+                    opt.textContent = `Ex ${ex.index}: ${questionSnippet} ${locStr}`;
+                    exerciseSelect.appendChild(opt);
+                });
+                
+                statusMessage.innerText = "Ready";
+                
+                // Trigger preview for first item
+                if (exercisesList.length > 0) {
+                    displayExercisePreview(exercisesList[0].index);
+                } else {
+                    questionTextArea.innerText = "No exercises found in this dataset. Make sure the JSON file exists.";
+                }
+            } catch (err) {
+                console.error("Error fetching exercises:", err);
+                statusMessage.innerText = "Error loading exercises";
+                questionTextArea.innerText = "Failed to load exercises from backend.";
+            }
+        }
+        
+        // Preprocess custom textbook LaTeX environments into standard KaTeX ones
+        function preprocessLatex(text) {
+            if (!text) return "";
+            let processed = text;
+            
+            // 1. Replace linsys environment (e.g. \begin{linsys}[t]{2} ... \end{linsys})
+            processed = processed.replace(/\\begin\{linsys\}(?:\[[a-z]\])?\{(\d+)\}([\s\S]*?)\\end\{linsys\}/gi, (match, cols, content) => {
+                const numCols = parseInt(cols);
+                let align = 'r';
+                for (let i = 0; i < numCols; i++) {
+                    align += 'cr';
+                }
+                return `\\begin{array}{${align}}${content}\\end{array}`;
+            });
+            
+            // 2. Replace amat environment (augmented matrix, e.g. \begin{amat}[r]{3} ... \end{amat})
+            processed = processed.replace(/\\begin\{amat\}\[([a-z])\]\{(\d+)\}([\s\S]*?)\\end\{amat\}/gi, (match, align, cols, content) => {
+                const numCols = parseInt(cols);
+                const colAlign = align || 'r';
+                const spec = colAlign.repeat(numCols) + '|' + colAlign;
+                return `\\left(\\begin{array}{${spec}}${content}\\end{array}\\right)`;
+            });
+            processed = processed.replace(/\\begin\{amat\}\{(\d+)\}([\s\S]*?)\\end\{amat\}/gi, (match, cols, content) => {
+                const numCols = parseInt(cols);
+                const spec = 'r'.repeat(numCols) + '|r';
+                return `\\left(\\begin{array}{${spec}}${content}\\end{array}\\right)`;
+            });
+            
+            // 3. Replace mat environment (matrix, e.g. \begin{mat}[r] ... \end{mat})
+            processed = processed.replace(/\\begin\{mat\}\[([a-z])\]([\s\S]*?)\\end\{mat\}/gi, '\\begin{pmatrix*}[$1]$2\\end{pmatrix*}');
+            processed = processed.replace(/\\begin\{mat\}([\s\S]*?)\\end\{mat\}/gi, '\\begin{pmatrix}$1\\end{pmatrix}');
+            
+            // 4. Replace exparts and exparts* environments
+            processed = processed.replace(/\\begin\{exparts\}/gi, '<ol class="exparts-list" style="list-style-type: lower-alpha; padding-left: 20px; margin-bottom: 10px;">');
+            processed = processed.replace(/\\begin\{exparts\*\}/gi, '<ol class="exparts-list exparts-inline" style="list-style-type: lower-alpha; padding-left: 20px; margin-bottom: 10px;">');
+            processed = processed.replace(/\\end\{exparts\*?\}/gi, '</ol>');
+            processed = processed.replace(/\\partsitem\*?/gi, '<li>');
+
+            // 5. Replace vdotswithin
+            processed = processed.replace(/\\vdotswithin\{[^{}]*\}/g, '\\vdots');
+            
+            // 5.5. Replace colvec
+            processed = processed.replace(/\\colvec\[([a-z])\]\{([^\}]+)\}/g, '\\begin{pmatrix*}[$1]$2\\end{pmatrix*}');
+            processed = processed.replace(/\\colvec\{([^\}]+)\}/g, '\\begin{pmatrix}$1\\end{pmatrix}');
+            
+            // 6. Replace grstep and repeatedgrstep
+            processed = processed.replace(/\\repeatedgrstep\[([^\]]+)\]\{([^\}]+)\}/g, '\\xrightarrow[$1]{$2}');
+            processed = processed.replace(/\\repeatedgrstep\{([^\}]+)\}/g, '\\xrightarrow{$1}');
+            processed = processed.replace(/\\grstep\[([^\]]+)\]\{([^\}]+)\}/g, '\\xrightarrow[$1]{$2}');
+            processed = processed.replace(/\\grstep\{([^\}]+)\}/g, '\\xrightarrow{$1}');
+            
+            return processed;
+        }
+
+        // Render markdown with math blocks isolated to avoid backslash escaping issues
+        function renderMarkdownWithMath(text) {
+            if (!text) return "";
+            const placeholders = [];
+            let placeholderCounter = 0;
+            let processed = text;
+            
+            function storePlaceholder(match) {
+                const id = `@@MATHPLACEHOLDER${placeholderCounter++}@@`;
+                placeholders.push({ id, content: match });
+                return id;
+            }
+            
+            // Match math blocks to isolate (checking for environments we've converted)
+            processed = processed.replace(/\$\$[\s\S]*?\$\$/g, storePlaceholder);
+            processed = processed.replace(/\\\[[\s\S]*?\\\]/g, storePlaceholder);
+            processed = processed.replace(/\\\([\s\S]*?\\\)/g, storePlaceholder);
+            processed = processed.replace(/\$[^\$\n]+?\$/g, storePlaceholder);
+            processed = processed.replace(/\\begin\{(equation\*?|align\*?|aligned|multline\*?|array|pmatrix\*?)\}[\s\S]*?\\end\{\1\}/gi, storePlaceholder);
+            
+            // Render markdown
+            let html = marked.parse(processed);
+            
+            // Restore math blocks literally in reverse order to handle nested blocks
+            for (let i = placeholders.length - 1; i >= 0; i--) {
+                const ph = placeholders[i];
+                html = html.replace(ph.id, () => ph.content);
+            }
+            
+            return html;
+        }
+
+        function displayExercisePreview(index) {
+            const exercise = exercisesList.find(ex => ex.index === parseInt(index));
+            if (!exercise) return;
+            
+            // Format exercise question and show
+            const cleanedQuestion = preprocessLatex(exercise.question);
+            questionTextArea.innerHTML = renderMarkdownWithMath(cleanedQuestion);
+            
+            const sec = exercise.location.section || '';
+            const subsec = exercise.location.subsection || '';
+            questionLabelText.innerText = `Exercise ${exercise.index} Question ${sec && subsec ? `(${sec} / ${subsec})` : ''}`;
+            
+            // Set official answer content
+            const cleanedAnswer = preprocessLatex(exercise.answer);
+            answerBodyContent.innerHTML = renderMarkdownWithMath(cleanedAnswer);
+            revealAnswerBtn.disabled = false;
+            
+            // Render Math in Question Box
+            renderMathInElement(questionTextArea, getKaTeXOptions());
+            
+            // Hide previous answer overlays
+            answerOverlay.style.display = 'none';
+        }
+        
+        // Define common macros used in Hefferon's textbook
+        function getKaTeXMacros() {
+            return {
+                "\\suchthat": "\\mid",
+                "\\Re": "\\mathbb{R}",
+                "\\map": "\\colon",
+                "\\vspan": "\\text{span}",
+                "\\vspace": "\\text{space}",
+                "\\trace": "\\text{tr}",
+                "\\isomorphic": "\\cong",
+                "\\size": "\\text{dim}",
+                "\\proj": "\\text{proj}",
+                "\\rep": "\\text{rep}",
+                "\\rank": "\\text{rank}",
+                "\\nullity": "\\text{nullity}",
+                "\\swap": "\\leftrightarrow"
+            };
+        }
+
+        // Shared KaTeX options to prevent auto-render crashes
+        function getKaTeXOptions() {
+            return {
+                delimiters: [
+                    {left: "$$", right: "$$", display: true},
+                    {left: "$", right: "$", display: false},
+                    {left: "\\(", right: "\\)", display: false},
+                    {left: "\\[", right: "\\]", display: true}
+                ],
+                macros: getKaTeXMacros(),
+                throwOnError: false
+            };
+        }
+        
+        // Setup Event Listeners
+        datasetSelect.addEventListener('change', fetchExercises);
+        exerciseSelect.addEventListener('change', (e) => displayExercisePreview(e.target.value));
+        
+        // Toggle Answer Modal
+        revealAnswerBtn.addEventListener('click', () => {
+            answerOverlay.style.display = 'block';
+            renderMathInElement(answerBodyContent, getKaTeXOptions());
+            answerOverlay.scrollIntoView({ behavior: 'smooth' });
+        });
+        closeAnswerBtn.addEventListener('click', () => {
+            answerOverlay.style.display = 'none';
+        });
+
+        // Solve and stream logic
+        solveBtn.addEventListener('click', () => {
+            const index = exerciseSelect.value;
+            if (!index) return;
+            
+            // Reset views
+            solutionContainer.innerHTML = '';
+            ragItemsContainer.innerHTML = `<div style="color: rgba(255,255,255,0.3); text-align: center; margin-top: 50px;">Querying context...</div>`;
+            toolLogsContainer.innerHTML = `<div style="color: rgba(255,255,255,0.3); text-align: center; margin-top: 50px;">Waiting for tool executions...</div>`;
+            
+            solveBtn.disabled = true;
+            statusSpinner.style.display = 'inline-block';
+            statusMessage.innerText = 'Starting solver...';
+            
+            const dataset = datasetSelect.value;
+            const rag = ragCheckbox.checked;
+            const search = searchCheckbox.checked;
+            const calc = calcCheckbox.checked;
+            const model = modelSelect.value;
+            
+            solverBoardTitle.innerText = `Blackboard Solution (Exercise ${index})`;
+            
+            // Build URL
+            const url = `/api/solve?index=${index}&dataset=${dataset}&rag=${rag}&search=${search}&calc=${calc}&model=${encodeURIComponent(model)}`;
+            
+            // Create Server-Sent Events listener
+            const eventSource = new EventSource(url);
+            let fullSolutionText = "";
+            let currentToolLogElement = null;
+            let ragLoaded = false;
+            let toolsLoaded = false;
+            
+            eventSource.onmessage = function(event) {
+                const packet = JSON.parse(event.data);
+                const type = packet.type;
+                const data = packet.data;
+                
+                if (type === 'status') {
+                    statusMessage.innerText = data.message;
+                } else if (type === 'warning') {
+                    solutionContainer.innerHTML += `<div class="warning-msg">[Warning] ${data.message}</div>`;
+                    mainBoardContent.scrollTop = mainBoardContent.scrollHeight;
+                } else if (type === 'rag_data') {
+                    if (!ragLoaded) {
+                        ragItemsContainer.innerHTML = '';
+                        ragLoaded = true;
+                    }
+                    renderRagItems(data.items);
+                } else if (type === 'tool_call') {
+                    if (!toolsLoaded) {
+                        toolLogsContainer.innerHTML = '';
+                        toolsLoaded = true;
+                    }
+                    currentToolLogElement = createToolCallElement(data.name, data.args);
+                } else if (type === 'tool_result') {
+                    if (currentToolLogElement) {
+                        updateToolResultElement(currentToolLogElement, data.name, data.result);
+                        currentToolLogElement = null;
+                    }
+                } else if (type === 'text') {
+                    fullSolutionText += data.content;
+                    // Preprocess and render markdown + math safely
+                    const cleanedSolution = preprocessLatex(fullSolutionText);
+                    solutionContainer.innerHTML = renderMarkdownWithMath(cleanedSolution);
+                    mainBoardContent.scrollTop = mainBoardContent.scrollHeight;
+                    
+                    // Throttled LaTeX rendering on completed parts
+                    if (data.content.includes('\n') || fullSolutionText.length % 100 === 0) {
+                        renderMathOnBoard();
+                    }
+                } else if (type === 'done') {
+                    statusMessage.innerText = 'Completed!';
+                    statusSpinner.style.display = 'none';
+                    solveBtn.disabled = false;
+                    eventSource.close();
+                    
+                    // Final parse and math rendering
+                    const cleanedSolution = preprocessLatex(fullSolutionText);
+                    solutionContainer.innerHTML = renderMarkdownWithMath(cleanedSolution);
+                    renderMathOnBoard();
+                } else if (type === 'error') {
+                    statusMessage.innerText = 'Error';
+                    statusSpinner.style.display = 'none';
+                    solveBtn.disabled = false;
+                    solutionContainer.innerHTML += `<div class="error-msg"><b>Error:</b> ${data.message}</div>`;
+                    eventSource.close();
+                }
+            };
+            
+            eventSource.onerror = function(err) {
+                console.error("SSE stream failed:", err);
+                statusMessage.innerText = 'Connection lost.';
+                statusSpinner.style.display = 'none';
+                solveBtn.disabled = false;
+                eventSource.close();
+            };
+        });
+
+        // Renders retrieved RAG data cards on the side panel
+        function renderRagItems(items) {
+            if (!items || items.length === 0) {
+                ragItemsContainer.innerHTML = `<div style="color: rgba(255,255,255,0.3); text-align: center; margin-top: 50px;">No matching reference found in ChromaDB.</div>`;
+                return;
+            }
+            
+            items.forEach(item => {
+                const card = document.createElement('div');
+                card.className = `rag-card type-${item.type}`;
+                
+                const typeLabel = item.type.toUpperCase();
+                const cleanedContent = preprocessLatex(item.content);
+                
+                card.innerHTML = `
+                    <div class="rag-card-header">
+                        <span class="rag-tag">${typeLabel}</span>
+                        <span class="rag-dist">Similarity: ${(1 - item.distance).toFixed(2)}</span>
+                    </div>
+                    <div class="rag-title">${item.title} ${item.label ? `[${item.label}]` : ''}</div>
+                    <div class="rag-body">${renderMarkdownWithMath(cleanedContent)}</div>
+                `;
+                ragItemsContainer.appendChild(card);
+                
+                // Render KaTeX in RAG cards
+                const body = card.querySelector('.rag-body');
+                renderMathInElement(body, getKaTeXOptions());
+            });
+        }
+
+        // Creates a shell for tool calls logging
+        function createToolCallElement(name, args) {
+            const item = document.createElement('div');
+            item.className = `tool-log-item ${name === 'calculate_linear_algebra' ? 'calc-tool' : 'search-tool'}`;
+            
+            const displayName = name === 'calculate_linear_algebra' ? 'Calculator Tool' : 'Search Tool';
+            
+            item.innerHTML = `
+                <div class="tool-log-header">
+                    <span>${displayName}</span>
+                    <span class="tool-badge">CALLING</span>
+                </div>
+                <div class="tool-log-code">${escapeHtml(args)}</div>
+                <div class="tool-log-result" style="color: rgba(255,255,255,0.4)">Executing...</div>
+            `;
+            
+            toolLogsContainer.appendChild(item);
+            // Scroll container
+            const box = document.getElementById('tools-board-content');
+            box.scrollTop = box.scrollHeight;
+            
+            return item;
+        }
+
+        // Updates the shell with tool outcomes
+        function updateToolResultElement(element, name, result) {
+            const badge = element.querySelector('.tool-badge');
+            badge.textContent = 'EXECUTED';
+            badge.style.backgroundColor = 'var(--chalk-green)';
+            
+            const resultBox = element.querySelector('.tool-log-result');
+            resultBox.textContent = result;
+            resultBox.style.color = 'var(--chalk-green)';
+            
+            // Scroll container
+            const box = document.getElementById('tools-board-content');
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // Helper to run KaTeX on the solver board
+        function renderMathOnBoard() {
+            renderMathInElement(solutionContainer, getKaTeXOptions());
+        }
+
+        // Initial fetch on load
+        window.addEventListener('DOMContentLoaded', fetchExercises);
+    </script>
+</body>
+</html>
