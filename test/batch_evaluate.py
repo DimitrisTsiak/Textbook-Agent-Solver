@@ -65,7 +65,7 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     env_path = os.path.join(project_root, ".env")
-    json_path = os.path.join(project_root, "parsed_gr1.json")
+    json_path = os.path.join(project_root, "parsed_gr2.json")
     db_path = os.path.join(project_root, "chroma_db")
     results_dir = os.path.join(script_dir, "results")
 
