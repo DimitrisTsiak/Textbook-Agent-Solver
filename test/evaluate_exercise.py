@@ -13,7 +13,12 @@ if project_root not in sys.path:
 from tools.search import search_textbook
 from tools.calculator import calculate_linear_algebra
 from utils.env import load_env
-from utils.embeddings import CustomGeminiEmbeddingFunction
+from core.solver import (
+    build_tool_instructions,
+    build_solver_prompt,
+    get_rag_collections,
+    query_rag_context,
+)
 
 # =====================================================================
 # CONFIGURATION
@@ -84,129 +89,51 @@ def evaluate():
     suffix = "local"
     
     if use_rag:
-        try:
-            import chromadb
+        db_path = "chroma_db"
+        if not os.path.exists(db_path):
+            db_path = os.path.join("..", "chroma_db")
             
-            # Resolve db path
-            db_path = "chroma_db"
-            if not os.path.exists(db_path):
-                db_path = os.path.join("..", "chroma_db")
-                
-            if not os.path.exists(db_path):
-                print(f"[WARNING] ChromaDB folder not found at '{db_path}'. Skipping RAG retrieval...")
-            else:
+        if not os.path.exists(db_path):
+            print(f"[WARNING] ChromaDB folder not found at '{db_path}'. Skipping RAG retrieval...")
+        else:
+            try:
                 print(f"Connecting to ChromaDB at '{db_path}'...")
-                client = chromadb.PersistentClient(path=db_path)
+                theory_col, chunks_col, setup_warnings = get_rag_collections(db_path, api_key)
+                for w in setup_warnings:
+                    print(f"[WARNING] {w}")
                 
-                # Suffix depends on environment config
-                suffix = "gemini" if api_key and api_key != "YOUR_GEMINI_API_KEY" else "local"
-                chunks_col_name = f"chapter_chunks_{suffix}"
-                theory_col_name = f"textbook_theory_{suffix}"
+                context, rag_items, query_warnings = query_rag_context(
+                    clean_question, theory_col=theory_col, chunks_col=chunks_col,
+                    n_theory=N_THEORY_RESULTS, n_chunks=N_CHUNK_RESULTS
+                )
+                for w in query_warnings:
+                    print(f"[WARNING] {w}")
                 
-                # Setup custom embedding function for gemini if active
-                embedding_function = None
-                if suffix == "gemini":
-                    emb_model = os.environ.get("EMBEDDING_MODEL_NAME", "models/text-embedding-004").strip()
-                    embedding_function = CustomGeminiEmbeddingFunction(api_key=api_key, model_name=emb_model)
-                
-                theory_context = []
-                chunk_context = []
-                
-                # 1. Retrieve Textbook Theory
-                try:
-                    if embedding_function:
-                        theory_col = client.get_collection(theory_col_name, embedding_function=embedding_function)
-                    else:
-                        theory_col = client.get_collection(theory_col_name)
-                    print(f"Querying '{theory_col_name}' for context...")
-                    res = theory_col.query(query_texts=[clean_question], n_results=N_THEORY_RESULTS)
-                    
-                    for doc, dist, meta in zip(res['documents'][0], res['distances'][0], res['metadatas'][0]):
-                        raw_latex = meta.get('raw_content', doc)
-                        title_info = f" ({meta.get('title')})" if meta.get('title') else ""
-                        label_info = f" (Label: {meta.get('label')})" if meta.get('label') else ""
-                        theory_context.append(
-                            f"[{meta.get('type', 'theory').upper()}]{title_info}{label_info}:\n{raw_latex}"
-                        )
+                # Build markdown summary from structured rag_items
+                for item in rag_items:
+                    if item["source"] == "theory":
                         retrieved_summary.append(
-                            f"* **{meta.get('type', 'Theory').capitalize()}** (Dist: {dist:.4f}) - Label: `{meta.get('label', 'None')}`"
+                            f"* **{item['type'].capitalize()}** (Dist: {item['distance']:.4f}) - Label: `{item['label'] or 'None'}`"
                         )
-                except Exception as e:
-                    print(f"[WARNING] Retrieval from '{theory_col_name}' failed: {e}")
-                    
-                # 2. Retrieve Chapter Paragraph Chunks
-                try:
-                    if embedding_function:
-                        chunks_col = client.get_collection(chunks_col_name, embedding_function=embedding_function)
                     else:
-                        chunks_col = client.get_collection(chunks_col_name)
-                    print(f"Querying '{chunks_col_name}' for context...")
-                    res = chunks_col.query(query_texts=[clean_question], n_results=N_CHUNK_RESULTS)
-                    
-                    for doc, dist, meta in zip(res['documents'][0], res['distances'][0], res['metadatas'][0]):
-                        raw_latex = meta.get('raw_content', doc)
-                        chunk_context.append(
-                            f"Paragraph Excerpt (Subsection '{meta.get('subsection', 'Unknown')}'):\n{raw_latex}"
-                        )
                         retrieved_summary.append(
-                            f"* **Chapter Chunk** (Dist: {dist:.4f}) - Subsection: `{meta.get('subsection', 'None')}`"
+                            f"* **Chapter Chunk** (Dist: {item['distance']:.4f}) - Subsection: `{item['subsection']}`"
                         )
-                except Exception as e:
-                    print(f"[WARNING] Retrieval from '{chunks_col_name}' failed: {e}")
                 
-                # Combine context pieces
-                context_parts = []
-                if theory_context:
-                    context_parts.append("--- RELEVANT TEXTBOOK THEORY ---\n" + "\n\n".join(theory_context))
-                if chunk_context:
-                    context_parts.append("--- RELEVANT CHAPTER CONTEXT ---\n" + "\n\n".join(chunk_context))
-                    
-                if context_parts:
-                    context = "\n\n".join(context_parts)
+                if context:
                     print("Retrieved context successfully.")
+                    suffix = "gemini" if api_key and api_key != "YOUR_GEMINI_API_KEY" else "local"
                 else:
                     print("No matching context was retrieved.")
-                    
-        except ImportError:
-            print("[WARNING] chromadb package is not installed. Skipping RAG retrieval...")
-            use_rag = False
+            except ImportError:
+                print("[WARNING] chromadb package is not installed. Skipping RAG retrieval...")
+                use_rag = False
             
     # -------------------------------------------------------------
     # Prompt Construction & LLM Call
     # -------------------------------------------------------------
-    instructions = []
-    if USE_SEARCH_TOOL:
-        instructions.append("You have access to the tool `search_textbook(query)` to search the textbook for relevant definitions, theorems, and examples if needed.")
-    if USE_CALCULATOR_TOOL:
-        instructions.append("You have access to the tool `calculate_linear_algebra(code)` to run Python code to perform matrix operations, row reductions, or algebra. The tool returns stdout, so print your results. IMPORTANT: Do not write import statements in your code. SymPy public functions/classes (such as Matrix, symbols, solve, etc.) and NumPy (as np) are already pre-imported in the execution environment. REMINDER: You must always use this tool to verify and perform any mathematical or linear algebra calculations. Do not rely on calculations provided in the prompt or exercise text as they may be inaccurate or misleading.")
-        
-    tool_instructions = "\n".join(instructions)
-
-    if use_rag and context:
-        prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
-Use the relevant textbook context provided below to guide your solution, referring to definitions, theorems, and row reduction notations as described in the context.
-
-{tool_instructions}
-
---- CONTEXT ---
-{context}
-
---- EXERCISE ---
-{question_text}
-
-Provide your complete mathematical solution. Keep your explanation concise but mathematically rigorous. Cite relevant theorems or definitions when you apply them.
-"""
-    else:
-        prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
-Do not use any external textbook context unless you search for it.
-
-{tool_instructions}
-
---- EXERCISE ---
-{question_text}
-
-Provide your complete mathematical solution. Keep your explanation concise but mathematically rigorous.
-"""
+    tool_instructions = build_tool_instructions(USE_SEARCH_TOOL, USE_CALCULATOR_TOOL)
+    prompt = build_solver_prompt(question_text, context, tool_instructions, use_rag)
         
     # Configure Gemini LLM
     genai.configure(api_key=api_key)

@@ -16,9 +16,14 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from utils.env import load_env
-from utils.embeddings import CustomGeminiEmbeddingFunction
 from tools.calculator import calculate_linear_algebra
 from tools.search import search_textbook
+from core.solver import (
+    build_tool_instructions,
+    build_solver_prompt,
+    get_rag_collections,
+    query_rag_context,
+)
 import google.generativeai as genai
 
 app = FastAPI(title="Linear Algebra Solver Blackboard")
@@ -109,7 +114,6 @@ def solve_and_stream_generator(
         # RAG context retrieval
         context = ""
         rag_items = []
-        suffix = "gemini" if local_api_key and local_api_key != "YOUR_GEMINI_API_KEY" else "local"
         
         if use_rag:
             yield sse_event("status", {"message": "Connecting to ChromaDB and querying relevant context..."})
@@ -118,81 +122,14 @@ def solve_and_stream_generator(
                 yield sse_event("warning", {"message": f"ChromaDB folder not found at '{db_path}'. Skipping RAG retrieval..."})
             else:
                 try:
-                    import chromadb
-                    client = chromadb.PersistentClient(path=db_path)
-                    
-                    embedding_model_name = os.environ.get("EMBEDDING_MODEL_NAME", "models/text-embedding-004").strip()
-                    embedding_function = None
-                    if suffix == "gemini":
-                        embedding_function = CustomGeminiEmbeddingFunction(api_key=local_api_key, model_name=embedding_model_name)
-                        
-                    theory_col_name = f"textbook_theory_{suffix}"
-                    chunks_col_name = f"chapter_chunks_{suffix}"
+                    theory_col, chunks_col, setup_warnings = get_rag_collections(db_path, local_api_key)
+                    for w in setup_warnings:
+                        yield sse_event("warning", {"message": w})
                     
                     clean_q = exercise.get('clean_question', exercise['question'])
-                    theory_context = []
-                    chunk_context = []
-                    
-                    # 1. Retrieve theory
-                    try:
-                        if embedding_function:
-                            theory_col = client.get_collection(theory_col_name, embedding_function=embedding_function)
-                        else:
-                            theory_col = client.get_collection(theory_col_name)
-                        
-                        res = theory_col.query(query_texts=[clean_q], n_results=2)
-                        if res and res['documents'] and len(res['documents'][0]) > 0:
-                            for doc, dist, meta in zip(res['documents'][0], res['distances'][0], res['metadatas'][0]):
-                                raw_latex = meta.get('raw_content', doc)
-                                title_info = f" ({meta.get('title')})" if meta.get('title') else ""
-                                label_info = f" (Label: {meta.get('label')})" if meta.get('label') else ""
-                                
-                                item = {
-                                    "type": meta.get('type', 'theory'),
-                                    "title": meta.get('title', 'Theory'),
-                                    "label": meta.get('label', ''),
-                                    "content": raw_latex,
-                                    "distance": float(dist)
-                                }
-                                rag_items.append(item)
-                                theory_context.append(f"[{meta.get('type', 'theory').upper()}]{title_info}{label_info}:\n{raw_latex}")
-                    except Exception as e:
-                        print(f"Theory retrieval error: {e}")
-                        yield sse_event("warning", {"message": f"Failed to query theory collection: {str(e)}"})
-                        
-                    # 2. Retrieve chapter chunks
-                    try:
-                        if embedding_function:
-                            chunks_col = client.get_collection(chunks_col_name, embedding_function=embedding_function)
-                        else:
-                            chunks_col = client.get_collection(chunks_col_name)
-                        
-                        res = chunks_col.query(query_texts=[clean_q], n_results=2)
-                        if res and res['documents'] and len(res['documents'][0]) > 0:
-                            for doc, dist, meta in zip(res['documents'][0], res['distances'][0], res['metadatas'][0]):
-                                raw_latex = meta.get('raw_content', doc)
-                                item = {
-                                    "type": "paragraph",
-                                    "title": f"Subsection: {meta.get('subsection', 'Unknown')}",
-                                    "label": "",
-                                    "content": raw_latex,
-                                    "distance": float(dist)
-                                }
-                                rag_items.append(item)
-                                chunk_context.append(f"Paragraph Excerpt (Subsection '{meta.get('subsection', 'Unknown')}'):\n{raw_latex}")
-                    except Exception as e:
-                        print(f"Chunks retrieval error: {e}")
-                        yield sse_event("warning", {"message": f"Failed to query textbook paragraphs: {str(e)}"})
-                        
-                    # Combine context
-                    context_parts = []
-                    if theory_context:
-                        context_parts.append("--- RELEVANT TEXTBOOK THEORY ---\n" + "\n\n".join(theory_context))
-                    if chunk_context:
-                        context_parts.append("--- RELEVANT CHAPTER CONTEXT ---\n" + "\n\n".join(chunk_context))
-                    if context_parts:
-                        context = "\n\n".join(context_parts)
-                        
+                    context, rag_items, query_warnings = query_rag_context(clean_q, theory_col, chunks_col)
+                    for w in query_warnings:
+                        yield sse_event("warning", {"message": w})
                 except Exception as e:
                     yield sse_event("warning", {"message": f"RAG connection failed: {str(e)}"})
                     
@@ -204,39 +141,8 @@ def solve_and_stream_generator(
             yield sse_event("status", {"message": "No RAG context could be retrieved."})
             
         # Formulate instruction prompt
-        instructions = []
-        if use_search:
-            instructions.append("You have access to the tool `search_textbook(query)` to search the textbook for relevant definitions, theorems, and examples if needed.")
-        if use_calc:
-            instructions.append("You have access to the tool `calculate_linear_algebra(code)` to run Python code to perform matrix operations, row reductions, or algebra. The tool returns stdout, so print your results. IMPORTANT: Do not write import statements in your code. SymPy public functions/classes (such as Matrix, symbols, solve, etc.) and NumPy (as np) are already pre-imported in the execution environment. REMINDER: You must always use this tool to verify and perform any mathematical or linear algebra calculations. Do not rely on calculations provided in the prompt or exercise text as they may be inaccurate or misleading.")
-            
-        tool_instructions = "\n".join(instructions)
-        
-        if use_rag and context:
-            prompt = f"""You are a mathematics professor teaching one student. Solve the following linear algebra exercise step-by-step.
-Use the relevant textbook context provided below to guide your solution, referring to definitions, theorems, and row reduction notations as described in the context.
-
-{tool_instructions}
-
---- CONTEXT ---
-{context}
-
---- EXERCISE ---
-{exercise['question']}
-
-Provide your complete mathematical solution. Keep your explanation concise but mathematically rigorous. Cite relevant theorems or definitions when you apply them.
-"""
-        else:
-            prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
-Do not use any external textbook context unless you search for it.
-
-{tool_instructions}
-
---- EXERCISE ---
-{exercise['question']}
-
-Provide your complete mathematical solution. Keep your explanation concise but mathematically rigorous.
-"""
+        tool_instructions = build_tool_instructions(use_search, use_calc)
+        prompt = build_solver_prompt(exercise['question'], context, tool_instructions, use_rag)
             
         yield sse_event("status", {"message": "Configuring Gemini LLM agent..."})
         
