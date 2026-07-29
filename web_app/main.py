@@ -10,8 +10,8 @@ from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # Resolve project paths to import tools and utils
-script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in locals() else '.'
-project_root = r"c:\programming\linear-algebra-ai"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
@@ -213,7 +213,7 @@ def solve_and_stream_generator(
         tool_instructions = "\n".join(instructions)
         
         if use_rag and context:
-            prompt = f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
+            prompt = f"""You are a mathematics professor teaching one student. Solve the following linear algebra exercise step-by-step.
 Use the relevant textbook context provided below to guide your solution, referring to definitions, theorems, and row reduction notations as described in the context.
 
 {tool_instructions}

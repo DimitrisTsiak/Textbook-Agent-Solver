@@ -1,5 +1,6 @@
 import io
 import sys
+import contextlib
 import traceback
 import ast
 
@@ -105,22 +106,20 @@ def calculate_linear_algebra(code: str) -> str:
     except ImportError:
         pass # numpy is optional but useful
         
-    # Redirect stdout to capture prints
-    old_stdout = sys.stdout
+    # Capture stdout using thread-safe redirect
     redirected_output = io.StringIO()
-    sys.stdout = redirected_output
     
     try:
-        # Execute code in the configured environment
-        exec(code, global_env, local_env)
+        # redirect_stdout scopes the capture to this call, preventing
+        # output bleed between concurrent requests in FastAPI's thread pool.
+        with contextlib.redirect_stdout(redirected_output):
+            exec(code, global_env, local_env)
         output = redirected_output.getvalue()
         return output if output.strip() else "Code executed successfully, but returned no stdout. Did you forget to print() your results?"
     except Exception as e:
         # Capture traceback on failure to help model self-correct
         tb = traceback.format_exc()
         return f"Error executing code:\n{tb}"
-    finally:
-        sys.stdout = old_stdout
 
 
 if __name__ == '__main__':
