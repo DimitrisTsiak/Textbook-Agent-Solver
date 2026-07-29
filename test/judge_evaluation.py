@@ -78,7 +78,10 @@ def main():
 
     # Instantiate the judge model
     print(f"Configuring Judge Model '{args.model}'...")
-    judge_model = genai.GenerativeModel(args.model)
+    judge_model = genai.GenerativeModel(
+        args.model,
+        generation_config={"temperature": 0}
+    )
 
     results_list = data["results"]
     total_items = len(results_list)
