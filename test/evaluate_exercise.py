@@ -2,6 +2,9 @@ import os
 import sys
 import json
 import re
+import time
+import functools
+from datetime import datetime
 import google.generativeai as genai
 
 # Resolve paths to allow importing from tools and utils
@@ -25,7 +28,7 @@ from utils.tracing import observe, flush_traces
 # =====================================================================
 # CONFIGURATION
 # =====================================================================
-EXERCISE_INDEX = 1
+EXERCISE_INDEX = 15
 MODEL_NAME = "models/gemini-3.5-flash-lite"  
 
 # RAG CONFIGURATION
@@ -141,11 +144,31 @@ def evaluate():
     # Configure Gemini LLM
     genai.configure(api_key=api_key)
     
+    tool_logs = []
+
+    def make_logged_tool(tool_fn):
+        @functools.wraps(tool_fn)
+        def wrapper(*args, **kwargs):
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            start_time = time.time()
+            result = tool_fn(*args, **kwargs)
+            duration = round(time.time() - start_time, 3)
+            tool_logs.append({
+                "timestamp": timestamp,
+                "tool_name": tool_fn.__name__,
+                "args": args,
+                "kwargs": kwargs,
+                "duration_sec": duration,
+                "result": result,
+            })
+            return result
+        return wrapper
+
     active_tools = []
     if USE_SEARCH_TOOL:
-        active_tools.append(search_textbook)
+        active_tools.append(make_logged_tool(search_textbook))
     if USE_CALCULATOR_TOOL:
-        active_tools.append(calculate_linear_algebra)
+        active_tools.append(make_logged_tool(calculate_linear_algebra))
         
     if active_tools:
         tool_names = ", ".join([t.__name__ for t in active_tools])
@@ -204,6 +227,34 @@ def evaluate():
     
     retrieved_items_list = "\n".join(retrieved_summary) if retrieved_summary else "* No items retrieved."
     
+    if tool_logs:
+        log_sections = []
+        for idx, entry in enumerate(tool_logs, 1):
+            lines = [
+                f"### Tool Call {idx}: `{entry['tool_name']}`",
+                f"* **Timestamp**: `{entry['timestamp']}` (Duration: {entry['duration_sec']}s)"
+            ]
+            if entry.get("kwargs"):
+                for k, v in entry["kwargs"].items():
+                    if k == "code":
+                        lines.append(f"* **Code (`{k}`)**:\n```python\n{v}\n```")
+                    elif k == "query":
+                        lines.append(f"* **Query (`{k}`)**: `{v}`")
+                    else:
+                        lines.append(f"* **`{k}`**: `{v}`")
+            elif entry.get("args"):
+                for a_idx, arg in enumerate(entry["args"]):
+                    lines.append(f"* **Arg {a_idx+1}**:\n```\n{arg}\n```")
+            else:
+                lines.append("* **Arguments**: None")
+            
+            res_str = str(entry.get("result", "")).strip()
+            lines.append(f"* **Output**:\n```\n{res_str}\n```\n")
+            log_sections.append("\n".join(lines))
+        tool_logs_content = "\n".join(log_sections)
+    else:
+        tool_logs_content = "*No tool calls were made during solving.*"
+
     md_content = f"""# Comparison for Exercise {EXERCISE_INDEX}
 
 ## Location
@@ -231,6 +282,11 @@ def evaluate():
 ```latex
 {question_text}
 ```
+
+---
+
+## Tool Calls & Execution Log
+{tool_logs_content}
 
 ---
 
