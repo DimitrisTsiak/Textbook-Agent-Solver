@@ -46,7 +46,7 @@ def build_solver_prompt(question: str, context: str, tool_instructions: str, use
     if use_rag and context:
         return f"""You are a mathematics professor. Solve the following linear algebra exercise step-by-step.
 Use the relevant textbook context provided below to guide your solution, referring to definitions, theorems, and row reduction notations as described in the context.
-
+Whenever you rely on a definition, theorem, or method from the retrieved context, explicitly cite it (e.g., 'According to Lemma 1.2...').
 {tool_instructions}
 
 --- CONTEXT ---
