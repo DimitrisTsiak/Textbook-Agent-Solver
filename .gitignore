@@ -21,3 +21,9 @@ test/comparison_exercise_*.md
 
 # TODO list
 TODO.md
+
+# Langfuse
+.agents/
+test_traces.py
+langfuse_help_utf8.txt
+langfuse_help.txt

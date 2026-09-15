@@ -4,6 +4,7 @@ Used by web_app/main.py, test/batch_evaluate.py, and test/evaluate_exercise.py.
 """
 
 import os
+from utils.tracing import observe, update_current_observation
 
 # ---------------------------------------------------------------------------
 # Tool instruction constants
@@ -131,6 +132,7 @@ def get_rag_collections(db_path: str, api_key: str):
     return theory_col, chunks_col, warnings
 
 
+@observe(as_type="retriever", name="rag-retrieval")
 def query_rag_context(clean_question: str, theory_col=None, chunks_col=None,
                       n_theory: int = 2, n_chunks: int = 2):
     """
@@ -213,5 +215,24 @@ def query_rag_context(clean_question: str, theory_col=None, chunks_col=None,
     if chunk_context_pieces:
         context_parts.append("--- RELEVANT CHAPTER CONTEXT ---\n" + "\n\n".join(chunk_context_pieces))
     context_text = "\n\n".join(context_parts) if context_parts else ""
+
+    update_current_observation(
+        input={"query": clean_question, "n_theory": n_theory, "n_chunks": n_chunks},
+        output={
+            "retrieved_count": len(rag_items),
+            "items": [
+                {
+                    "source": item["source"],
+                    "type": item["type"],
+                    "title": item["title"],
+                    "label": item["label"],
+                    "distance": item["distance"],
+                    "subsection": item["subsection"]
+                }
+                for item in rag_items
+            ],
+            "context_length": len(context_text)
+        }
+    )
 
     return context_text, rag_items, warnings

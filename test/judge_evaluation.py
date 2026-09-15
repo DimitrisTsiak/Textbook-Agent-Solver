@@ -14,9 +14,11 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from utils.env import load_env
+from utils.tracing import observe, flush_traces
 
 # load_env is imported from utils.env
 
+@observe(name="judge-evaluation")
 def main():
     # Force line buffering for standard output to ensure real-time logging
     try:
@@ -203,4 +205,7 @@ Output ONLY '1' or '0' (no markdown, no other text).
     print("==============================================")
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        flush_traces()

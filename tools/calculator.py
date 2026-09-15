@@ -3,6 +3,7 @@ import sys
 import contextlib
 import traceback
 import ast
+from utils.tracing import observe, update_current_observation
 
 def is_safe_code(code: str) -> tuple[bool, str]:
     """
@@ -32,6 +33,7 @@ def is_safe_code(code: str) -> tuple[bool, str]:
                 
     return True, ""
 
+@observe(as_type="tool", name="calculator-tool")
 def calculate_linear_algebra(code: str) -> str:
     """
     Execute Python code to perform mathematical calculations using SymPy and NumPy.
@@ -47,11 +49,13 @@ def calculate_linear_algebra(code: str) -> str:
         The printed stdout of the execution, or the error message if code is unsafe or fails.
     """
     print(f"\n[Tool Execution] calculate_linear_algebra called.")
+    update_current_observation(input={"code": code})
     
     # 1. Statically sanitize code using AST
     is_safe, error_msg = is_safe_code(code)
     if not is_safe:
         print(f"  [Security Check] Failed: {error_msg}")
+        update_current_observation(output=error_msg, metadata={"security_check_passed": False})
         return error_msg
         
     # Setup execution environment with numpy and sympy pre-imported
@@ -115,11 +119,15 @@ def calculate_linear_algebra(code: str) -> str:
         with contextlib.redirect_stdout(redirected_output):
             exec(code, global_env, local_env)
         output = redirected_output.getvalue()
-        return output if output.strip() else "Code executed successfully, but returned no stdout. Did you forget to print() your results?"
+        final_res = output if output.strip() else "Code executed successfully, but returned no stdout. Did you forget to print() your results?"
+        update_current_observation(output=final_res)
+        return final_res
     except Exception as e:
         # Capture traceback on failure to help model self-correct
         tb = traceback.format_exc()
-        return f"Error executing code:\n{tb}"
+        err_res = f"Error executing code:\n{tb}"
+        update_current_observation(output=err_res)
+        return err_res
 
 
 if __name__ == '__main__':

@@ -91,7 +91,7 @@ def load_textbook_corpus():
     
     corpus = []
     
-    # 1. Load parsed_gr1.json (theory items)
+    # Load parsed_gr1.json (theory items)
     json_path = os.path.join(project_root, "parsed_gr1.json")
     if os.path.exists(json_path):
         with open(json_path, 'r', encoding='utf-8') as f:
@@ -112,7 +112,7 @@ def load_textbook_corpus():
                 }
             })
             
-    # 2. Load chapter chunks
+    # Load chapter chunks
     tex_path = os.path.join(project_root, "linear-algebra-master", "src", "gr", "gr1.tex")
     if os.path.exists(tex_path):
         chunks = chunk_chapter_file(tex_path)

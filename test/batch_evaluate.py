@@ -25,6 +25,8 @@ from core.solver import (
     query_rag_context,
 )
 
+from utils.tracing import observe, flush_traces
+
 # load_env is imported from utils.env
 
 def get_model_slug(model_name):
@@ -35,6 +37,7 @@ def get_model_slug(model_name):
     name = re.sub(r'[^a-zA-Z0-9_\-]', '_', name)
     return name
 
+@observe(name="batch-evaluate")
 def main():
     # Force line buffering for standard output to ensure real-time logging in tasks
     try:
@@ -333,4 +336,7 @@ def main():
     print("==============================================")
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        flush_traces()

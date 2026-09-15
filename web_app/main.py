@@ -24,6 +24,7 @@ from core.solver import (
     get_rag_collections,
     query_rag_context,
 )
+from utils.tracing import observe
 import google.generativeai as genai
 
 app = FastAPI(title="Linear Algebra Solver Blackboard")
@@ -83,6 +84,7 @@ def sse_event(event_type: str, data: dict) -> str:
     }
     return f"data: {json.dumps(packet)}\n\n"
 
+@observe(name="web-solve-stream")
 def solve_and_stream_generator(
     exercise_index: int,
     dataset: str,

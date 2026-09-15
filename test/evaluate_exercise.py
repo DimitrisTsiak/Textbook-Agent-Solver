@@ -20,10 +20,12 @@ from core.solver import (
     query_rag_context,
 )
 
+from utils.tracing import observe, flush_traces
+
 # =====================================================================
 # CONFIGURATION
 # =====================================================================
-EXERCISE_INDEX = 10
+EXERCISE_INDEX = 1
 MODEL_NAME = "models/gemini-3.5-flash-lite"  
 
 # RAG CONFIGURATION
@@ -54,6 +56,7 @@ def find_exercise_by_index(json_path, target_index):
             
     return None
 
+@observe(name="exercise-evaluation")
 def evaluate():
     print(f"Loading environment variables...")
     load_env()
@@ -248,4 +251,7 @@ def evaluate():
     print(f"\nSuccess! Solution and comparison written to: {os.path.abspath(out_path)}")
 
 if __name__ == '__main__':
-    evaluate()
+    try:
+        evaluate()
+    finally:
+        flush_traces()
