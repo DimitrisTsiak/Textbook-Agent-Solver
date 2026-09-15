@@ -2,7 +2,7 @@
 
 This project builds an autonomous textbook exercise solver for Jim Hefferon's undergraduate textbook *Linear Algebra*. The system parses the raw LaTeX source code, indexes the content (definitions, theorems, examples) in **ChromaDB**, and implements a tool-augmented agent architecture using the **Google Gemini API**. The agent leverages semantic **RAG**, keyword search via **BM25**, and a symbolic/numeric Python calculation tool using **NumPy** and **SymPy** to solve exercises sequentially. Correctness is evaluated via an automated **LLM-as-a-Judge** pipeline that compares solver outputs directly against official answers.
 
-![Interactive Blackboard Solver Demo](blackboard_demo.gif)
+![Linear Algebra Solver](Linear_algebra_solver.png)
 
 ## Book Source
 Source LaTeX files are located in `linear-algebra-master/`. The book and answer manuals are available at [hefferon.net/linearalgebra](https://hefferon.net/linearalgebra).
