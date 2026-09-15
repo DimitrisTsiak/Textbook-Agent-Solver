@@ -838,6 +838,18 @@
             if (!text) return "";
             let processed = text;
             
+            // Clean textbook text macros
+            processed = processed.replace(/\\definend\{([^}]+)\}/gi, '**$1**');
+            processed = processed.replace(/\\index\{[^}]*\}/gi, '');
+            processed = processed.replace(/~([a-zA-Z0-9$\\])/g, ' $1');
+            processed = processed.replace(/\\spaceforemptycolumn/gi, '\\quad ');
+            
+            // Clean TeX layout primitives from textbook equations
+            processed = processed.replace(/\\hfill\s*\\hbox\{[^{}]*\}/gi, '');
+            processed = processed.replace(/\\hfill/gi, '');
+            processed = processed.replace(/\\vfill/gi, '');
+            processed = processed.replace(/\\hbox\{([^{}]*)\}/gi, '$1');
+
             // 1. Replace linsys environment (e.g. \begin{linsys}[t]{2} ... \end{linsys})
             processed = processed.replace(/\\begin\{linsys\}(?:\[[a-z]\])?\{(\d+)\}([\s\S]*?)\\end\{linsys\}/gi, (match, cols, content) => {
                 const numCols = parseInt(cols);
@@ -848,20 +860,16 @@
                 return `\\begin{array}{${align}}${content}\\end{array}`;
             });
             
-            // 2. Replace amat environment (augmented matrix, e.g. \begin{amat}[r]{3} ... \end{amat})
-            processed = processed.replace(/\\begin\{amat\}\[([a-z])\]\{(\d+)\}([\s\S]*?)\\end\{amat\}/gi, (match, align, cols, content) => {
+            // 2. Replace amat / amatrix environment (augmented matrix, e.g. \begin{amat}[r]{3} ... \end{amat})
+            processed = processed.replace(/\\begin\{amat(?:rix)?\}(?:\[([a-z])\])?\{(\d+)\}([\s\S]*?)\\end\{amat(?:rix)?\}/gi, (match, align, cols, content) => {
                 const numCols = parseInt(cols);
                 const colAlign = align || 'r';
                 const spec = colAlign.repeat(numCols) + '|' + colAlign;
                 return `\\left(\\begin{array}{${spec}}${content}\\end{array}\\right)`;
             });
-            processed = processed.replace(/\\begin\{amat\}\{(\d+)\}([\s\S]*?)\\end\{amat\}/gi, (match, cols, content) => {
-                const numCols = parseInt(cols);
-                const spec = 'r'.repeat(numCols) + '|r';
-                return `\\left(\\begin{array}{${spec}}${content}\\end{array}\\right)`;
-            });
             
-            // 3. Replace mat environment (matrix, e.g. \begin{mat}[r] ... \end{mat})
+            // 3. Replace pmat and mat environments
+            processed = processed.replace(/\\begin\{pmat\}\{([^}]+)\}([\s\S]*?)\\end\{pmat\}/gi, '\\left(\\begin{array}{$1}$2\\end{array}\\right)');
             processed = processed.replace(/\\begin\{mat\}\[([a-z])\]([\s\S]*?)\\end\{mat\}/gi, '\\begin{pmatrix*}[$1]$2\\end{pmatrix*}');
             processed = processed.replace(/\\begin\{mat\}([\s\S]*?)\\end\{mat\}/gi, '\\begin{pmatrix}$1\\end{pmatrix}');
             
@@ -875,14 +883,19 @@
             processed = processed.replace(/\\vdotswithin\{[^{}]*\}/g, '\\vdots');
             
             // 5.5. Replace colvec
-            processed = processed.replace(/\\colvec\[([a-z])\]\{([^\}]+)\}/g, '\\begin{pmatrix*}[$1]$2\\end{pmatrix*}');
-            processed = processed.replace(/\\colvec\{([^\}]+)\}/g, '\\begin{pmatrix}$1\\end{pmatrix}');
+            processed = processed.replace(/\\colvec\[([a-z])\]\{([\s\S]*?)\}/g, '\\begin{pmatrix*}[$1]$2\\end{pmatrix*}');
+            processed = processed.replace(/\\colvec\{([\s\S]*?)\}/g, '\\begin{pmatrix}$1\\end{pmatrix}');
             
-            // 6. Replace grstep and repeatedgrstep
-            processed = processed.replace(/\\repeatedgrstep\[([^\]]+)\]\{([^\}]+)\}/g, '\\xrightarrow[$1]{$2}');
-            processed = processed.replace(/\\repeatedgrstep\{([^\}]+)\}/g, '\\xrightarrow{$1}');
-            processed = processed.replace(/\\grstep\[([^\]]+)\]\{([^\}]+)\}/g, '\\xrightarrow[$1]{$2}');
-            processed = processed.replace(/\\grstep\{([^\}]+)\}/g, '\\xrightarrow{$1}');
+            // 6. Replace grstep and repeatedgrstep with substack support for multiline operations
+            function cleanGrstep(sub, sup) {
+                if (!sub) return `\\xrightarrow{${sup}}`;
+                const cleanSub = sub.includes('\\\\') ? `\\substack{${sub}}` : sub;
+                return `\\xrightarrow[${cleanSub}]{${sup}}`;
+            }
+            processed = processed.replace(/\\repeatedgrstep\[([^\]]+)\]\{([\s\S]*?)\}/g, (m, sub, sup) => cleanGrstep(sub, sup));
+            processed = processed.replace(/\\repeatedgrstep\{([\s\S]*?)\}/g, (m, sup) => `\\xrightarrow{${sup}}`);
+            processed = processed.replace(/\\grstep\[([^\]]+)\]\{([\s\S]*?)\}/g, (m, sub, sup) => cleanGrstep(sub, sup));
+            processed = processed.replace(/\\grstep\{([\s\S]*?)\}/g, (m, sup) => `\\xrightarrow{${sup}}`);
             
             return processed;
         }
@@ -900,12 +913,16 @@
                 return id;
             }
             
-            // Match math blocks to isolate (checking for environments we've converted)
+            // 1. Match display math blocks $$ ... $$
             processed = processed.replace(/\$\$[\s\S]*?\$\$/g, storePlaceholder);
+            // 2. Match \[ ... \]
             processed = processed.replace(/\\\[[\s\S]*?\\\]/g, storePlaceholder);
+            // 3. Match \( ... \)
             processed = processed.replace(/\\\([\s\S]*?\\\)/g, storePlaceholder);
-            processed = processed.replace(/\$[^\$\n]+?\$/g, storePlaceholder);
-            processed = processed.replace(/\\begin\{(equation\*?|align\*?|aligned|multline\*?|array|pmatrix\*?)\}[\s\S]*?\\end\{\1\}/gi, storePlaceholder);
+            // 4. Match all standard LaTeX display environments
+            processed = processed.replace(/\\begin\{(equation\*?|align\*?|aligned|alignat\*?|gather\*?|multline\*?|matrix\*?|pmatrix\*?|bmatrix\*?|vmatrix\*?|array)\}[\s\S]*?\\end\{\1\}/gi, storePlaceholder);
+            // 5. Match inline math $ ... $ (including multiline within formula)
+            processed = processed.replace(/\$(?:\\\$|[^\$])+?\$/g, storePlaceholder);
             
             // Render markdown
             let html = marked.parse(processed);
@@ -943,11 +960,17 @@
             answerOverlay.style.display = 'none';
         }
         
-        // Define common macros used in Hefferon's textbook
+        // Define common macros used in Hefferon's textbook and linear algebra notation
         function getKaTeXMacros() {
             return {
                 "\\suchthat": "\\mid",
                 "\\Re": "\\mathbb{R}",
+                "\\R": "\\mathbb{R}",
+                "\\N": "\\mathbb{N}",
+                "\\Z": "\\mathbb{Z}",
+                "\\Q": "\\mathbb{Q}",
+                "\\C": "\\mathbb{C}",
+                "\\F": "\\mathcal{F}",
                 "\\map": "\\colon",
                 "\\vspan": "\\text{span}",
                 "\\vspace": "\\text{space}",
@@ -958,18 +981,53 @@
                 "\\rep": "\\text{rep}",
                 "\\rank": "\\text{rank}",
                 "\\nullity": "\\text{nullity}",
-                "\\swap": "\\leftrightarrow"
+                "\\swap": "\\leftrightarrow",
+                "\\set": "\\left\\{ #1 \\right\\}",
+                "\\sequence": "\\langle #1 \\rangle",
+                "\\basis": "\\langle \\vec{#1}_1, \\dots, \\vec{#1}_{#2} \\rangle",
+                "\\trans": "{#1}^{\\mathsf{T}}",
+                "\\rowspace": "\\text{Rowspace}(#1)",
+                "\\colspace": "\\text{Columnspace}(#1)",
+                "\\lincombo": "#1_1 #2_1 + \\dots + #1_n #2_n",
+                "\\innerprod": "\\langle #1, #2 \\rangle",
+                "\\norm": "\\|#1\\|",
+                "\\absval": "|#1|",
+                "\\stdbasis": "\\mathcal{E}",
+                "\\deter": "\\left| #1 \\right|",
+                "\\nbyn": "#1 \\times #1",
+                "\\nbym": "#1 \\times #2",
+                "\\identity": "\\text{id}",
+                "\\composed": "#1 \\circ #2",
+                "\\hfill": "",
+                "\\vfill": "",
+                "\\hbox": "#1"
             };
         }
 
-        // Shared KaTeX options to prevent auto-render crashes
+        // Shared KaTeX options with all standard math delimiters and environments
         function getKaTeXOptions() {
             return {
                 delimiters: [
                     {left: "$$", right: "$$", display: true},
                     {left: "$", right: "$", display: false},
                     {left: "\\(", right: "\\)", display: false},
-                    {left: "\\[", right: "\\]", display: true}
+                    {left: "\\[", right: "\\]", display: true},
+                    {left: "\\begin{equation*}", right: "\\end{equation*}", display: true},
+                    {left: "\\begin{equation}", right: "\\end{equation}", display: true},
+                    {left: "\\begin{align*}", right: "\\end{align*}", display: true},
+                    {left: "\\begin{align}", right: "\\end{align}", display: true},
+                    {left: "\\begin{aligned}", right: "\\end{aligned}", display: true},
+                    {left: "\\begin{alignat*}", right: "\\end{alignat*}", display: true},
+                    {left: "\\begin{alignat}", right: "\\end{alignat}", display: true},
+                    {left: "\\begin{gather*}", right: "\\end{gather*}", display: true},
+                    {left: "\\begin{gather}", right: "\\end{gather}", display: true},
+                    {left: "\\begin{multline*}", right: "\\end{multline*}", display: true},
+                    {left: "\\begin{multline}", right: "\\end{multline}", display: true},
+                    {left: "\\begin{pmatrix}", right: "\\end{pmatrix}", display: true},
+                    {left: "\\begin{pmatrix*}", right: "\\end{pmatrix*}", display: true},
+                    {left: "\\begin{matrix}", right: "\\end{matrix}", display: true},
+                    {left: "\\begin{matrix*}", right: "\\end{matrix*}", display: true},
+                    {left: "\\begin{array}", right: "\\end{array}", display: true}
                 ],
                 macros: getKaTeXMacros(),
                 throwOnError: false
@@ -1168,7 +1226,11 @@
 
         // Helper to run KaTeX on the solver board
         function renderMathOnBoard() {
-            renderMathInElement(solutionContainer, getKaTeXOptions());
+            try {
+                renderMathInElement(solutionContainer, getKaTeXOptions());
+            } catch (err) {
+                console.warn("KaTeX render warning:", err);
+            }
         }
 
         // Initial fetch on load
